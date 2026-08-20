@@ -8,7 +8,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 
 BOT_TOKEN = "8980577910:AAGJFO588dLcq86neXNAcPUwIW9_xG7UHc8"
 FOUNDER_ID = 8669060906
-ONLY_OWNER_MODE = False  # Глобальный режим "только основатель"
+ONLY_OWNER_MODE = False
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -35,6 +35,10 @@ CHAT_RANK_2 = 2
 CHAT_RANK_3 = 3
 CHAT_RANK_4 = 4
 CHAT_RANK_OWNER = 5
+
+# ==================== АНТИСПАМ СИСТЕМА ====================
+# Храним сообщения: {(chat_id, user_id): [timestamps]}
+message_history = {}
 
 class Database:
     def __init__(self, db_path: str = "fluxy_bot.db"):
@@ -179,27 +183,29 @@ class Database:
                 chat_type TEXT,
                 chat_title TEXT
             );
+            CREATE TABLE IF NOT EXISTS chat_settings (
+                chat_id INTEGER PRIMARY KEY,
+                antispam_enabled INTEGER DEFAULT 0,
+                antispam_limit INTEGER DEFAULT 5,
+                welcome_enabled INTEGER DEFAULT 0,
+                welcome_text TEXT DEFAULT 'Привет, {name}! Добро пожаловать в {chat}! 🎉'
+            );
         ''')
         self.init_default_data()
         self.conn.commit()
 
     def init_default_data(self):
-        # Ранги бота
         for lvl, name in {0:"Пользователь",1:"Ранг 1",2:"Ранг 2",3:"Ранг 3",4:"Ранг 4",5:"Ранг 5",6:"Ранг 6",7:"Ранг 7",8:"Админ бота",9:"Высший админ",10:"Основатель бота"}.items():
             self.cursor.execute("INSERT OR IGNORE INTO bot_rank_names VALUES (?, ?)", (lvl, name))
-        # Уровни агентов
         for lvl, name in {0:"Не агент",1:"Агент поддержки",2:"Главный агент поддержки",3:"ГС агентов поддержки"}.items():
             self.cursor.execute("INSERT OR IGNORE INTO agent_level_names VALUES (?, ?)", (lvl, name))
-        # Права рангов бота
         for rank, perms in {8:["btn_admin_panel","btn_admins_list","btn_agents_list","btn_blacklist","btn_give_rep","btn_commands","btn_chats"],
                             9:["btn_admin_panel","btn_admins_list","btn_agents_list","btn_blacklist","btn_give_rep","btn_commands","btn_chats","btn_ranks","btn_rank_names","btn_rank_perms","btn_super_admins","btn_agent_levels","btn_agent_names","btn_agent_perms"]}.items():
             for p in perms:
                 self.cursor.execute("INSERT OR IGNORE INTO bot_rank_permissions VALUES (?, ?)", (rank, p))
-        # Права агентов
         for level, perms in {1:["btn_answer_tickets"],2:["btn_answer_tickets","btn_close_tickets"],3:["btn_answer_tickets","btn_close_tickets","btn_manage_agents","btn_view_reports"]}.items():
             for p in perms:
                 self.cursor.execute("INSERT OR IGNORE INTO agent_level_permissions VALUES (?, ?)", (level, p))
-        # Ранги чатов
         self.cursor.execute("SELECT chat_id FROM chats")
         for (chat_id,) in self.cursor.fetchall():
             for level, name in {0:"Пользователь",1:"Ранг 1",2:"Ранг 2",3:"Ранг 3",4:"Ранг 4",5:"Владелец"}.items():
@@ -513,6 +519,29 @@ class Database:
         ''', (clan_id, limit))
         return [{'sender_id': r[0], 'message': r[1], 'sent_date': r[2], 'username': r[3] or 'Нет'} for r in self.cursor.fetchall()]
 
+    # ==================== НАСТРОЙКИ ЧАТА ====================
+    def get_chat_settings(self, chat_id: int):
+        self.cursor.execute("SELECT * FROM chat_settings WHERE chat_id = ?", (chat_id,))
+        result = self.cursor.fetchone()
+        if result:
+            columns = [desc[0] for desc in self.cursor.description]
+            return dict(zip(columns, result))
+        return None
+
+    def save_chat_settings(self, chat_id: int, **kwargs):
+        # Проверяем, есть ли запись
+        self.cursor.execute("SELECT chat_id FROM chat_settings WHERE chat_id = ?", (chat_id,))
+        exists = self.cursor.fetchone()
+        
+        if not exists:
+            self.cursor.execute("INSERT INTO chat_settings (chat_id) VALUES (?)", (chat_id,))
+        
+        # Обновляем переданные поля
+        for key, value in kwargs.items():
+            self.cursor.execute(f"UPDATE chat_settings SET {key} = ? WHERE chat_id = ?", (value, chat_id))
+        
+        self.conn.commit()
+
 db = Database()
 
 # ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
@@ -573,6 +602,48 @@ async def get_target_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 pass
         return None
     return None
+
+# ==================== ФУНКЦИЯ ПРОВЕРКИ АНТИСПАМА ====================
+async def check_antispam(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """
+    Проверяет антиспам. Возвращает True если сообщение нужно заблокировать.
+    """
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    
+    settings = db.get_chat_settings(chat_id)
+    if not settings or not settings.get("antispam_enabled"):
+        return False
+    
+    now = time.time()
+    limit = settings.get("antispam_limit", 5)
+    
+    key = (chat_id, user_id)
+    timestamps = message_history.get(key, [])
+    
+    # Оставляем только сообщения за последнюю секунду
+    timestamps = [t for t in timestamps if now - t < 1]
+    
+    if len(timestamps) >= limit:
+        # Превышен лимит - кикаем
+        try:
+            await context.bot.ban_chat_member(chat_id, user_id)
+            await context.bot.unban_chat_member(chat_id, user_id)
+            await update.effective_message.reply_text(
+                f"🚫 <b>{update.effective_user.full_name}</b> исключён за спам!",
+                parse_mode='HTML'
+            )
+            # Очищаем историю
+            message_history[key] = []
+        except Exception as e:
+            logger.error(f"Ошибка при кике за спам: {e}")
+        return True
+    
+    # Добавляем текущее сообщение в историю
+    timestamps.append(now)
+    message_history[key] = timestamps
+    
+    return False
 
 # ==================== КОМАНДА /id ====================
 async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1046,8 +1117,157 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard.append([InlineKeyboardButton("❓ Помощь", callback_data="help"), InlineKeyboardButton("📋 Команды", callback_data="commands")])
     keyboard.append([InlineKeyboardButton("🔰 Агенты поддержки", callback_data="agents_list")])
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-    
-    # ==================== ДОПОЛНИТЕЛЬНЫЕ АДМИН-КОМАНДЫ ====================
+
+# ==================== КОМАНДА /help ====================
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_blacklisted_check(user.id):
+        await update.message.reply_text("❌ Вы в черном списке бота")
+        return
+    text = """❓ Помощь
+━━━━━━━━━━━━━━━━
+
+Основные команды:
+/start - Запуск бота
+/help - Помощь
+/ping - Пинг бота
+/id - Узнать ID
+/stats - Профиль пользователя
+/profile - Свой профиль
+/clan - Меню клана
+/clan_top - Топ кланов
+/report - Жалоба
+"""
+    # Модерация видна только при наличии прав
+    if update.effective_chat and update.effective_chat.type != "private":
+        chat = update.effective_chat
+        if has_chat_permission(chat.id, user.id, "btn_kick"):
+            text += "\n/kick [ID/@username] [причина]\n/unban [ID/@username]\n"
+        if has_chat_permission(chat.id, user.id, "btn_warn"):
+            text += "/warn [ID/@username] [причина]\n/unwarn [ID/@username]\n"
+        if has_chat_permission(chat.id, user.id, "btn_ban"):
+            text += "/ban [ID/@username] [причина]\n"
+        if has_chat_permission(chat.id, user.id, "btn_mute"):
+            text += "/mute [ID/@username] [время] [причина]\n/unmute [ID/@username]\n"
+        if is_chat_owner(chat.id, user.id) or has_chat_permission(chat.id, user.id, "btn_chat_admin"):
+            text += "\n/setadm [ID/@username] [0-5] - Выдать ранг в чате\n/admins - Список админов чата\n"
+    # Админ-команды
+    if has_bot_permission(user.id, "btn_blacklist"):
+        text += "\nЧС:\n/permban [ID] [причина]\n/unperm [ID]\n"
+    if has_astats_permission(user.id):
+        text += "\n/astats - Статистика жалоб\n"
+    if has_hstats_permission(user.id):
+        text += "\n/hstats - Статистика вопросов\n"
+    if user.id == FOUNDER_ID:
+        text += "\n/onlyowner - Режим «только основатель»\n/botadmins - Админы бота\n"
+    text += "\nВыберите тип обращения:"
+    keyboard = [
+        [InlineKeyboardButton("❗️ Жалоба", callback_data="help_report")],
+        [InlineKeyboardButton("❓ Вопрос", callback_data="help_question")],
+        [InlineKeyboardButton("⬅️ Выход", callback_data="start_menu")]
+    ]
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+# ==================== КОМАНДА /report ====================
+async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_blacklisted_check(user.id):
+        await update.message.reply_text("❌ Вы в черном списке бота")
+        return
+    if is_staff(user.id):
+        await update.message.reply_text("⛔ Админы и агенты не могут отправлять жалобы")
+        return
+    if not update.message.reply_to_message:
+        await update.message.reply_text("Ответьте на сообщение нарушителя командой /report <причина>")
+        return
+    reporter = update.effective_user
+    target = update.message.reply_to_message.from_user
+    reason = ' '.join(context.args) if context.args else "Не указана"
+    chat = update.effective_chat
+    message_link = f"https://t.me/c/{str(chat.id)[4:]}/{update.message.reply_to_message.message_id}" if str(chat.id).startswith('-100') else "Нет ссылки"
+    report_id = db.add_report(reporter.id, reporter.username or f"id{reporter.id}", target.id, target.username or f"id{target.id}", reason, chat.id, chat.title or "Личный чат", message_link)
+    admins = db.get_all_bot_admins()
+    for admin in admins:
+        try:
+            text = f"""❗️ Новая жалоба
+━━━━━━━━━━━━━━━━
+
+👤 Кто: {reporter.username or 'Нет'} (ID: {reporter.id})
+👤 На кого: {target.username or 'Нет'} (ID: {target.id})
+📝 Причина: {reason}
+💬 Чат: {chat.title or 'Личный чат'}
+🕐 Время: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}
+🔗 Ссылка: {message_link}"""
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✉️ Ответить", callback_data=f"reply_report_{report_id}_{reporter.id}")]])
+            await context.bot.send_message(admin['user_id'], text, reply_markup=keyboard)
+        except Exception as e:
+            logger.error(f"Ошибка отправки жалобы админу {admin['user_id']}: {e}")
+    await update.message.reply_text("✅ Жалоба отправлена администрации")
+
+# ==================== КОМАНДА /clan_top ====================
+async def clan_top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_blacklisted_check(user.id):
+        await update.message.reply_text("❌ Вы в черном списке бота")
+        return
+    top_clans = db.get_top_clans()
+    if not top_clans:
+        await update.message.reply_text("Пока нет кланов")
+        return
+    text = "🏆 Топ кланов\n━━━━━━━━━━━━━━━━\n\n"
+    medals = ["🥇", "🥈", "🥉"]
+    for i, clan in enumerate(top_clans[:10]):
+        medal = medals[i] if i < 3 else f"{i+1}."
+        text += f"{medal} {clan['name']} — {clan['rating']}\n"
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Выход", callback_data="start_menu")]]))
+
+# ==================== КОМАНДА /profile ====================
+async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_blacklisted_check(user.id):
+        await update.message.reply_text("❌ Вы в черном списке бота")
+        return
+    clan = db.get_user_clan(user.id)
+    text = f"""👤 Ваш профиль
+━━━━━━━━━━━━━━━━
+
+🆔 ID: {user.id}
+🎖️ Ранг: {db.get_bot_rank_name(user.id)}
+📊 Агент: {db.get_agent_level_name(user.id)}
+
+🛡️ Клан: {clan['name'] if clan else 'Нет'}
+🏆 Рейтинг: {clan['rating'] if clan else 0}
+
+━━━━━━━━━━━━━━━━"""
+    keyboard = [[InlineKeyboardButton("🏆 Награды", callback_data=f"show_awards_{user.id}")]]
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+# ==================== КОМАНДА /clan ====================
+async def clan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_blacklisted_check(user.id):
+        await update.message.reply_text("❌ Вы в черном списке бота")
+        return
+    clan = db.get_user_clan(user.id)
+    if not clan:
+        keyboard = [
+            [InlineKeyboardButton("➕ Создать клан", callback_data="create_clan")],
+            [InlineKeyboardButton("⬅️ Выход", callback_data="start_menu")]
+        ]
+        await update.message.reply_text("Вы не состоите в клане", reply_markup=InlineKeyboardMarkup(keyboard))
+    else:
+        keyboard = [
+            [InlineKeyboardButton("👥 Участники", callback_data="clan_members")],
+            [InlineKeyboardButton("🔒 Вход в клан", callback_data="clan_join_settings")],
+            [InlineKeyboardButton("✉️ Сообщения", callback_data="clan_messages")],
+            [InlineKeyboardButton("🏆 Топ кланов", callback_data="clan_top")],
+            [InlineKeyboardButton("⚔ Война", callback_data="clan_war")],
+            [InlineKeyboardButton("📩 Сообщение клану", callback_data="clan_pm")],
+            [InlineKeyboardButton("⬅️ Выход", callback_data="start_menu")]
+        ]
+        await update.message.reply_text(format_clan_info(clan), reply_markup=InlineKeyboardMarkup(keyboard))
+
+# ==================== ДОПОЛНИТЕЛЬНЫЕ АДМИН-КОМАНДЫ ====================
 async def setrank_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -1163,219 +1383,6 @@ async def blacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for u in blacklist:
             text += f"• {u['first_name']} (@{u['username']})\n  ID: {u['user_id']}\n  Причина: {u['reason']}\n\n"
     await update.message.reply_text(text)
-
-# ==================== КОМАНДА /help ====================
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if is_blacklisted_check(user.id):
-        await update.message.reply_text("❌ Вы в черном списке бота")
-        return
-    text = """❓ Помощь
-━━━━━━━━━━━━━━━━
-
-Основные команды:
-/start - Запуск бота
-/help - Помощь
-/ping - Пинг бота
-/id - Узнать ID
-/stats - Профиль пользователя
-/profile - Свой профиль
-/clan - Меню клана
-/clan_top - Топ кланов
-/report - Жалоба
-
-Модерация:
-/kick [ID/@username] - Кикнуть
-/warn [ID/@username] - Предупредить
-/ban [ID/@username] - Забанить
-/mute [ID/@username] [время] - Замутить
-/unmute [ID/@username] - Размутить
-/unban [ID/@username] - Разбанить
-/unwarn [ID/@username] - Снять предупреждение
-/setadm [ID/@username] [0-5] - Выдать ранг в чате
-
-Списки:
-/admins - Админы чата
-/botadmins - Админы бота
-
-Статистика:
-/astats - Статистика ответов на жалобы
-/hstats - Статистика ответов на вопросы
-
-ЧС:
-/permban [ID/@username] [причина] - Добавить в ЧС
-/unperm [ID/@username] - Убрать из ЧС
-
-Для основателя:
-/onlyowner - Вкл/выкл режим «только основатель»
-
-Выберите тип обращения:"""
-    keyboard = [
-        [InlineKeyboardButton("❗️ Жалоба", callback_data="help_report")],
-        [InlineKeyboardButton("❓ Вопрос", callback_data="help_question")],
-        [InlineKeyboardButton("⬅️ Выход", callback_data="start_menu")]
-    ]
-    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-
-# ==================== КОМАНДА /report ====================
-async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if is_blacklisted_check(user.id):
-        await update.message.reply_text("❌ Вы в черном списке бота")
-        return
-    if is_staff(user.id):
-        await update.message.reply_text("⛔ Админы и агенты не могут отправлять жалобы")
-        return
-    if not update.message.reply_to_message:
-        await update.message.reply_text("Ответьте на сообщение нарушителя командой /report <причина>")
-        return
-    reporter = update.effective_user
-    target = update.message.reply_to_message.from_user
-    reason = ' '.join(context.args) if context.args else "Не указана"
-    chat = update.effective_chat
-    message_link = f"https://t.me/c/{str(chat.id)[4:]}/{update.message.reply_to_message.message_id}" if str(chat.id).startswith('-100') else "Нет ссылки"
-    report_id = db.add_report(reporter.id, reporter.username or f"id{reporter.id}", target.id, target.username or f"id{target.id}", reason, chat.id, chat.title or "Личный чат", message_link)
-    admins = db.get_all_bot_admins()
-    for admin in admins:
-        try:
-            text = f"""❗️ Новая жалоба
-━━━━━━━━━━━━━━━━
-
-👤 Кто: {reporter.username or 'Нет'} (ID: {reporter.id})
-👤 На кого: {target.username or 'Нет'} (ID: {target.id})
-📝 Причина: {reason}
-💬 Чат: {chat.title or 'Личный чат'}
-🕐 Время: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}
-🔗 Ссылка: {message_link}"""
-            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✉️ Ответить", callback_data=f"reply_report_{report_id}_{reporter.id}")]])
-            await context.bot.send_message(admin['user_id'], text, reply_markup=keyboard)
-        except Exception as e:
-            logger.error(f"Ошибка отправки жалобы админу {admin['user_id']}: {e}")
-    await update.message.reply_text("✅ Жалоба отправлена администрации")
-
-# ==================== КОМАНДА /clan_top ====================
-async def clan_top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if is_blacklisted_check(user.id):
-        await update.message.reply_text("❌ Вы в черном списке бота")
-        return
-    top_clans = db.get_top_clans()
-    if not top_clans:
-        await update.message.reply_text("Пока нет кланов")
-        return
-    text = "🏆 Топ кланов\n━━━━━━━━━━━━━━━━\n\n"
-    medals = ["🥇", "🥈", "🥉"]
-    for i, clan in enumerate(top_clans[:10]):
-        medal = medals[i] if i < 3 else f"{i+1}."
-        text += f"{medal} {clan['name']} — {clan['rating']}\n"
-    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Выход", callback_data="start_menu")]]))
-
-# ==================== КОМАНДА /profile ====================
-async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if is_blacklisted_check(user.id):
-        await update.message.reply_text("❌ Вы в черном списке бота")
-        return
-    clan = db.get_user_clan(user.id)
-    text = f"""👤 Ваш профиль
-━━━━━━━━━━━━━━━━
-
-🆔 ID: {user.id}
-🎖️ Ранг: {db.get_bot_rank_name(user.id)}
-📊 Агент: {db.get_agent_level_name(user.id)}
-
-🛡️ Клан: {clan['name'] if clan else 'Нет'}
-🏆 Рейтинг: {clan['rating'] if clan else 0}
-
-━━━━━━━━━━━━━━━━"""
-    keyboard = [[InlineKeyboardButton("🏆 Награды", callback_data=f"show_awards_{user.id}")]]
-    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-
-# ==================== КОМАНДА /clan ====================
-async def clan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if is_blacklisted_check(user.id):
-        await update.message.reply_text("❌ Вы в черном списке бота")
-        return
-    clan = db.get_user_clan(user.id)
-    if not clan:
-        keyboard = [
-            [InlineKeyboardButton("➕ Создать клан", callback_data="create_clan")],
-            [InlineKeyboardButton("⬅️ Выход", callback_data="start_menu")]
-        ]
-        await update.message.reply_text("Вы не состоите в клане", reply_markup=InlineKeyboardMarkup(keyboard))
-    else:
-        keyboard = [
-            [InlineKeyboardButton("👥 Участники", callback_data="clan_members")],
-            [InlineKeyboardButton("🔒 Вход в клан", callback_data="clan_join_settings")],
-            [InlineKeyboardButton("✉️ Сообщения", callback_data="clan_messages")],
-            [InlineKeyboardButton("🏆 Топ кланов", callback_data="clan_top")],
-            [InlineKeyboardButton("⚔ Война", callback_data="clan_war")],
-            [InlineKeyboardButton("📩 Сообщение клану", callback_data="clan_pm")],
-            [InlineKeyboardButton("⬅️ Выход", callback_data="start_menu")]
-        ]
-        await update.message.reply_text(format_clan_info(clan), reply_markup=InlineKeyboardMarkup(keyboard))
-
-# ==================== КОМАНДА /admin ====================
-async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if is_blacklisted_check(user.id):
-        await update.message.reply_text("❌ Вы в черном списке бота")
-        return
-    if not has_bot_permission(user.id, "btn_admin_panel"):
-        await update.message.reply_text("⛔ Нет доступа")
-        return
-    keyboard = []
-    row = []
-    if has_bot_permission(user.id, "btn_admins_list"):
-        row.append(InlineKeyboardButton("👥 Админы", callback_data="bot_admins_list"))
-    if has_bot_permission(user.id, "btn_agents_list"):
-        row.append(InlineKeyboardButton("🔰 Агенты", callback_data="list_agents"))
-    if row: keyboard.append(row)
-    row = []
-    if has_bot_permission(user.id, "btn_blacklist"):
-        row.append(InlineKeyboardButton("🚫 ЧС", callback_data="black_list"))
-    if has_bot_permission(user.id, "btn_give_rep"):
-        row.append(InlineKeyboardButton("⭐️ Репутация", callback_data="give_rep"))
-    if row: keyboard.append(row)
-    keyboard.append([InlineKeyboardButton("⬅️ Выход", callback_data="start_menu")])
-    await update.message.reply_text("⭐️ Админ панель бота", reply_markup=InlineKeyboardMarkup(keyboard))
-    
-# ==================== СПИСКИ ПРАВ ДЛЯ КНОПОК ====================
-BOT_BUTTON_PERMISSIONS = {
-    "btn_admin_panel": "⭐️ Админ панель",
-    "btn_admins_list": "👥 Админы бота",
-    "btn_agents_list": "🔰 Агенты поддержки",
-    "btn_blacklist": "🚫 Черный список",
-    "btn_give_rep": "⭐️ Выдать репутацию",
-    "btn_commands": "📋 Все команды",
-    "btn_chats": "🗂 Все чаты",
-    "btn_ranks": "📊 Ранги бота",
-    "btn_rank_names": "📝 Названия рангов",
-    "btn_rank_perms": "⚙️ Права рангов",
-    "btn_super_admins": "👑 Супер-админы",
-    "btn_agent_levels": "📊 Уровни агентов",
-    "btn_agent_names": "📝 Названия уровней АП",
-    "btn_agent_perms": "⚙️ Права уровней АП",
-    "btn_astats": "📊 Статистика жалоб (/astats)",
-}
-
-AGENT_BUTTON_PERMISSIONS = {
-    "btn_answer_tickets": "✅ Отвечать на тикеты",
-    "btn_close_tickets": "❌ Закрывать тикеты",
-    "btn_manage_agents": "👥 Управлять агентами",
-    "btn_view_reports": "📋 Просматривать жалобы",
-    "btn_manage_blacklist": "🚫 Управлять ЧС",
-    "btn_hstats": "📊 Статистика вопросов (/hstats)",
-}
-
-CHAT_BUTTON_PERMISSIONS = {
-    "btn_chat_admin": "👑 Админ панель",
-    "btn_kick": "👢 Кик",
-    "btn_warn": "⚠️ Предупреждение",
-    "btn_mute": "🔇 Мут",
-    "btn_ban": "🔨 Бан",
-}
 
 # ==================== СПИСКИ ПРАВ ДЛЯ КНОПОК ====================
 BOT_BUTTON_PERMISSIONS = {
@@ -1498,7 +1505,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton("🔰 Агенты поддержки", callback_data="agents_list")])
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-    # Админ‑панель бота
+    # Админ-панель бота
     elif data == "admin_panel":
         if not has_bot_permission(user.id, "btn_admin_panel"):
             await query.edit_message_text("⛔ У вас нет доступа")
@@ -1705,7 +1712,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("⛔ Только основатель", show_alert=True); return
         context.user_data['adding_super_admin'] = True
         await query.edit_message_text("Введите ID:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Отмена", callback_data="super_admins_list")]]))
-    elif data == "remove_super_admin":
+        elif data == "remove_super_admin":
         if user.id != FOUNDER_ID:
             await query.answer("⛔ Только основатель", show_alert=True); return
         context.user_data['removing_super_admin'] = True
@@ -1825,12 +1832,147 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             [InlineKeyboardButton("👥 Админы чата", callback_data="chat_admins_list")],
             [InlineKeyboardButton("📊 Ранги чата", callback_data="chat_ranks_list")],
+            [InlineKeyboardButton("🛡 Антиспам", callback_data="antispam_settings")],
+            [InlineKeyboardButton("👋 Приветствие", callback_data="welcome_settings")],
         ]
         if is_chat_owner(chat.id, user.id):
             keyboard.append([InlineKeyboardButton("⚙️ Настройка прав рангов", callback_data="chat_rank_permissions")])
             keyboard.append([InlineKeyboardButton("📝 Названия рангов", callback_data="chat_rank_names")])
         keyboard.append([InlineKeyboardButton("⬅️ Выход", callback_data="start_menu")])
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    # 🆕 АНТИСПАМ НАСТРОЙКИ
+    elif data == "antispam_settings":
+        if not chat or chat.type == "private": return
+        settings = db.get_chat_settings(chat.id)
+        antispam_enabled = settings.get("antispam_enabled") if settings else 0
+        antispam_limit = settings.get("antispam_limit", 5) if settings else 5
+        
+        text = f"""🛡 Настройки антиспама
+━━━━━━━━━━━━━━━━
+
+Статус: {'✅ Включён' if antispam_enabled else '❌ Выключен'}
+Лимит: {antispam_limit} сообщений/секунду
+
+Выберите действие:"""
+        
+        keyboard = [
+            [InlineKeyboardButton(
+                "❌ Выключить" if antispam_enabled else "✅ Включить",
+                callback_data="toggle_antispam"
+            )],
+            [InlineKeyboardButton("⚙️ Изменить лимит", callback_data="change_antispam_limit")],
+            [InlineKeyboardButton("⬅️ Выход", callback_data="chat_admin_panel")]
+        ]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    
+    elif data == "toggle_antispam":
+        if not chat or chat.type == "private": return
+        settings = db.get_chat_settings(chat.id)
+        current_status = settings.get("antispam_enabled") if settings else 0
+        db.save_chat_settings(chat.id, antispam_enabled=0 if current_status else 1)
+        await query.answer(
+            "✅ Антиспам включён" if not current_status else "❌ Антиспам выключен",
+            show_alert=True
+        )
+        settings = db.get_chat_settings(chat.id)
+        antispam_enabled = settings.get("antispam_enabled")
+        antispam_limit = settings.get("antispam_limit", 5)
+        text = f"""🛡 Настройки антиспама
+━━━━━━━━━━━━━━━━
+
+Статус: {'✅ Включён' if antispam_enabled else '❌ Выключен'}
+Лимит: {antispam_limit} сообщений/секунду
+
+Выберите действие:"""
+        keyboard = [
+            [InlineKeyboardButton(
+                "❌ Выключить" if antispam_enabled else "✅ Включить",
+                callback_data="toggle_antispam"
+            )],
+            [InlineKeyboardButton("⚙️ Изменить лимит", callback_data="change_antispam_limit")],
+            [InlineKeyboardButton("⬅️ Выход", callback_data="chat_admin_panel")]
+        ]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    
+    elif data == "change_antispam_limit":
+        if not chat or chat.type == "private": return
+        context.user_data['changing_antispam_limit'] = True
+        await query.edit_message_text(
+            "💬 Отправьте число — сколько сообщений в секунду разрешено.\n"
+            "Например: <code>5</code>\n\n"
+            "Если пользователь превысит лимит, он будет исключён!",
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Отмена", callback_data="antispam_settings")]])
+        )
+    
+    # 🆕 ПРИВЕТСТВИЕ НАСТРОЙКИ
+    elif data == "welcome_settings":
+        if not chat or chat.type == "private": return
+        settings = db.get_chat_settings(chat.id)
+        welcome_enabled = settings.get("welcome_enabled") if settings else 0
+        welcome_text = settings.get("welcome_text", 'Привет, {name}! Добро пожаловать в {chat}!') if settings else 'Привет, {name}! Добро пожаловать в {chat}!'
+        
+        text = f"""👋 Настройки приветствия
+━━━━━━━━━━━━━━━━
+
+Статус: {'✅ Включено' if welcome_enabled else '❌ Выключено'}
+Текст: {welcome_text}
+
+Выберите действие:"""
+        
+        keyboard = [
+            [InlineKeyboardButton(
+                "❌ Выключить" if welcome_enabled else "✅ Включить",
+                callback_data="toggle_welcome"
+            )],
+            [InlineKeyboardButton("⚙️ Изменить текст", callback_data="change_welcome_text")],
+            [InlineKeyboardButton("⬅️ Выход", callback_data="chat_admin_panel")]
+        ]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    
+    elif data == "toggle_welcome":
+        if not chat or chat.type == "private": return
+        settings = db.get_chat_settings(chat.id)
+        current_status = settings.get("welcome_enabled") if settings else 0
+        db.save_chat_settings(chat.id, welcome_enabled=0 if current_status else 1)
+        await query.answer(
+            "✅ Приветствие включено" if not current_status else "❌ Приветствие выключено",
+            show_alert=True
+        )
+        settings = db.get_chat_settings(chat.id)
+        welcome_enabled = settings.get("welcome_enabled")
+        welcome_text = settings.get("welcome_text", 'Привет, {name}! Добро пожаловать в {chat}!')
+        text = f"""👋 Настройки приветствия
+━━━━━━━━━━━━━━━━
+
+Статус: {'✅ Включено' if welcome_enabled else '❌ Выключено'}
+Текст: {welcome_text}
+
+Выберите действие:"""
+        keyboard = [
+            [InlineKeyboardButton(
+                "❌ Выключить" if welcome_enabled else "✅ Включить",
+                callback_data="toggle_welcome"
+            )],
+            [InlineKeyboardButton("⚙️ Изменить текст", callback_data="change_welcome_text")],
+            [InlineKeyboardButton("⬅️ Выход", callback_data="chat_admin_panel")]
+        ]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    
+    elif data == "change_welcome_text":
+        if not chat or chat.type == "private": return
+        context.user_data['changing_welcome_text'] = True
+        await query.edit_message_text(
+            "👋 Отправьте текст приветствия.\n"
+            "Можно использовать:\n"
+            "• <code>{name}</code> — имя участника\n"
+            "• <code>{chat}</code> — название чата\n\n"
+            "Пример: <code>Привет, {name}! Рады видеть в {chat} 🎉</code>",
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Отмена", callback_data="welcome_settings")]])
+        )
+
     elif data == "chat_admins_list":
         if not chat or chat.type == "private": return
         admins = db.get_all_chat_admins(chat.id)
@@ -2086,33 +2228,27 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /clan - Меню клана
 /clan_top - Топ кланов
 /report - Жалоба
-
-Модерация:
-/kick [ID/@username] - Кикнуть
-/warn [ID/@username] - Предупредить
-/ban [ID/@username] - Забанить
-/mute [ID/@username] [время] - Замутить
-/unmute [ID/@username] - Размутить
-/unban [ID/@username] - Разбанить
-/unwarn [ID/@username] - Снять предупреждение
-/setadm [ID/@username] [0-5] - Выдать ранг в чате
-
-Списки:
-/admins - Админы чата
-/botadmins - Админы бота
-
-Статистика:
-/astats - Статистика ответов на жалобы
-/hstats - Статистика ответов на вопросы
-
-ЧС:
-/permban [ID/@username] [причина] - Добавить в ЧС
-/unperm [ID/@username] - Убрать из ЧС
-
-Для основателя:
-/onlyowner - Вкл/выкл режим «только основатель»
-
-Выберите тип обращения:"""
+"""
+        if chat and chat.type != "private":
+            if has_chat_permission(chat.id, user.id, "btn_kick"):
+                text += "\n/kick [ID/@username] [причина]\n/unban [ID/@username]\n"
+            if has_chat_permission(chat.id, user.id, "btn_warn"):
+                text += "/warn [ID/@username] [причина]\n/unwarn [ID/@username]\n"
+            if has_chat_permission(chat.id, user.id, "btn_ban"):
+                text += "/ban [ID/@username] [причина]\n"
+            if has_chat_permission(chat.id, user.id, "btn_mute"):
+                text += "/mute [ID/@username] [время] [причина]\n/unmute [ID/@username]\n"
+            if is_chat_owner(chat.id, user.id) or has_chat_permission(chat.id, user.id, "btn_chat_admin"):
+                text += "\n/setadm [ID/@username] [0-5] - Выдать ранг в чате\n/admins - Список админов чата\n"
+        if has_bot_permission(user.id, "btn_blacklist"):
+            text += "\nЧС:\n/permban [ID] [причина]\n/unperm [ID]\n"
+        if has_astats_permission(user.id):
+            text += "\n/astats - Статистика жалоб\n"
+        if has_hstats_permission(user.id):
+            text += "\n/hstats - Статистика вопросов\n"
+        if user.id == FOUNDER_ID:
+            text += "\n/onlyowner - Режим «только основатель»\n/botadmins - Админы бота\n"
+        text += "\nВыберите тип обращения:"
         keyboard = [
             [InlineKeyboardButton("❗️ Жалоба", callback_data="help_report")],
             [InlineKeyboardButton("❓ Вопрос", callback_data="help_question")],
@@ -2190,7 +2326,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text += "\n/onlyowner - Режим «только основатель»\n"
             text += "/botadmins - Админы бота\n"
 
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Выход", callback_data="start_menu")]]))
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Выход", callback_data="start_menu")]])
+        )
 
     # Агенты (для пользователей)
     elif data == "agents_list":
@@ -2202,7 +2341,80 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for agent in agents:
                 text += f"• @{agent['username']} - {db.get_agent_level_name(agent['user_id'])}\n"
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Выход", callback_data="start_menu")]]))
-        
+
+# ==================== ДОПОЛНИТЕЛЬНЫЕ КОМАНДЫ ====================
+async def setsuperadmin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_blacklisted_check(user.id):
+        await update.message.reply_text("❌ Вы в черном списке бота")
+        return
+    if user.id != FOUNDER_ID:
+        await update.message.reply_text("⛔ Только основатель")
+        return
+    if not context.args:
+        await update.message.reply_text("/setsuperadmin [ID]")
+        return
+    try:
+        db.add_super_admin(int(context.args[0]))
+        await update.message.reply_text("✅ Супер-админ назначен")
+    except ValueError:
+        await update.message.reply_text("❌ Введите ID")
+
+async def agents_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_blacklisted_check(user.id):
+        await update.message.reply_text("❌ Вы в черном списке бота")
+        return
+    if not (has_bot_permission(user.id, "btn_agents_list") or db.get_agent_level(user.id) > 0):
+        await update.message.reply_text("⛔ Нет доступа")
+        return
+    agents = db.get_all_agents()
+    text = "🔰 Агенты поддержки\n━━━━━━━━━━━━━━━━\n\n"
+    if not agents:
+        text += "Нет агентов"
+    else:
+        for agent in agents:
+            text += f"• {agent['first_name']} (@{agent['username']})\n  Уровень: {db.get_agent_level_name(agent['user_id'])}\n\n"
+    await update.message.reply_text(text)
+
+async def giverep_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_blacklisted_check(user.id):
+        await update.message.reply_text("❌ Вы в черном списке бота")
+        return
+    if not has_bot_permission(user.id, "btn_give_rep"):
+        await update.message.reply_text("⛔ Нет доступа")
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text("/giverep [ID клана] [количество]")
+        return
+    try:
+        clan_id = int(context.args[0])
+        rating = int(context.args[1])
+        clan = db.get_clan(clan_id)
+        if clan:
+            db.add_clan_rating(clan_id, rating)
+            await update.message.reply_text(f"✅ Клану {clan['name']} +{rating}")
+    except ValueError:
+        await update.message.reply_text("❌ Введите числа")
+
+async def blacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_blacklisted_check(user.id):
+        await update.message.reply_text("❌ Вы в черном списке бота")
+        return
+    if not has_bot_permission(user.id, "btn_blacklist"):
+        await update.message.reply_text("⛔ Нет доступа")
+        return
+    blacklist = db.get_blacklist()
+    text = "🚫 Черный список\n━━━━━━━━━━━━━━━━\n\n"
+    if not blacklist:
+        text += "Пуст"
+    else:
+        for u in blacklist:
+            text += f"• {u['first_name']} (@{u['username']})\n  ID: {u['user_id']}\n  Причина: {u['reason']}\n\n"
+    await update.message.reply_text(text)
+
 # ==================== ОБРАБОТЧИК СООБЩЕНИЙ ====================
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global ONLY_OWNER_MODE
@@ -2217,6 +2429,41 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+        return
+
+    # 🆕 АНТИСПАМ ПРОВЕРКА
+    if await check_antispam(update, context):
+        return
+
+    # 🆕 Изменение лимита антиспама
+    if context.user_data.get('changing_antispam_limit'):
+        context.user_data['changing_antispam_limit'] = False
+        try:
+            limit = int(text)
+            if limit < 1 or limit > 50:
+                await update.message.reply_text("❌ Введите число от 1 до 50!")
+                return
+            db.save_chat_settings(chat.id, antispam_enabled=1, antispam_limit=limit)
+            await update.message.reply_text(
+                f"✅ Антиспам настроен! Лимит: <b>{limit} сообщений/секунду</b>",
+                parse_mode='HTML'
+            )
+        except ValueError:
+            await update.message.reply_text("❌ Введите число!")
+        return
+
+    # 🆕 Изменение текста приветствия
+    if context.user_data.get('changing_welcome_text'):
+        context.user_data['changing_welcome_text'] = False
+        welcome_text = text.strip()
+        if len(welcome_text) > 500:
+            await update.message.reply_text("❌ Слишком длинное сообщение! Максимум 500 символов.")
+            return
+        db.save_chat_settings(chat.id, welcome_enabled=1, welcome_text=welcome_text)
+        await update.message.reply_text(
+            f"✅ Приветствие настроено!\n\nТекст:\n<code>{welcome_text}</code>",
+            parse_mode='HTML'
+        )
         return
 
     # Ответ на жалобу
@@ -2472,6 +2719,23 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
+# ==================== ПРИВЕТСТВИЕ НОВЫХ УЧАСТНИКОВ ====================
+async def welcome_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отправляет приветствие новым участникам"""
+    chat_id = update.effective_chat.id
+    
+    settings = db.get_chat_settings(chat_id)
+    if not settings or not settings.get("welcome_enabled"):
+        return
+    
+    for member in update.message.new_chat_members:
+        text = settings["welcome_text"]
+        text = text.replace("{name}", member.full_name)
+        text = text.replace("{chat}", update.effective_chat.title)
+        
+        await update.message.reply_text(text, parse_mode='HTML')
+
+
 # ==================== ГЛАВНАЯ ФУНКЦИЯ ====================
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
@@ -2486,7 +2750,6 @@ def main():
     application.add_handler(CommandHandler("clan_top", clan_top_command))
     application.add_handler(CommandHandler("profile", profile_command))
     application.add_handler(CommandHandler("clan", clan_command))
-    application.add_handler(CommandHandler("admin", admin_command))
 
     # Модерация
     application.add_handler(CommandHandler("kick", kick_command))
@@ -2519,6 +2782,13 @@ def main():
 
     # Callback и сообщения
     application.add_handler(CallbackQueryHandler(button_handler))
+    
+    # 🆕 Обработчик новых участников
+    application.add_handler(MessageHandler(
+        filters.StatusUpdate.NEW_CHAT_MEMBERS,
+        welcome_new_members
+    ))
+    
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
 
     print("Бот Fluxy запущен...")
