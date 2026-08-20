@@ -6,14 +6,12 @@ import sqlite3
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatPermissions
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 
-# ==================== КОНФИГУРАЦИЯ ====================
 BOT_TOKEN = "8980577910:AAGJFO588dLcq86neXNAcPUwIW9_xG7UHc8"
 FOUNDER_ID = 8669060906
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ==================== КОНСТАНТЫ ====================
 BOT_RANK_USER = 0
 BOT_RANK_1 = 1
 BOT_RANK_2 = 2
@@ -37,7 +35,6 @@ CHAT_RANK_3 = 3
 CHAT_RANK_4 = 4
 CHAT_RANK_OWNER = 5
 
-# ==================== БАЗА ДАННЫХ ====================
 class Database:
     def __init__(self, db_path: str = "fluxy_bot.db"):
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
@@ -181,8 +178,11 @@ class Database:
                 chat_type TEXT,
                 chat_title TEXT
             );
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            );
         ''')
-        # Добавляем колонку answered_by для старых баз
         try:
             self.cursor.execute("ALTER TABLE reports ADD COLUMN answered_by INTEGER")
         except:
@@ -468,6 +468,15 @@ class Database:
         self.cursor.execute('SELECT chat_id, chat_type, chat_title FROM chats')
         return [{'chat_id': r[0], 'chat_type': r[1], 'chat_title': r[2]} for r in self.cursor.fetchall()]
 
+    def set_only_owner_mode(self, enabled: bool):
+        self.cursor.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', ('only_owner', '1' if enabled else '0'))
+        self.conn.commit()
+
+    def get_only_owner_mode(self) -> bool:
+        self.cursor.execute("SELECT value FROM settings WHERE key = 'only_owner'")
+        result = self.cursor.fetchone()
+        return result[0] == '1' if result else False
+
     def add_warning(self, chat_id: int, user_id: int, warned_by: int, reason: str):
         self.cursor.execute('INSERT INTO warnings (chat_id, user_id, warned_by, reason) VALUES (?, ?, ?, ?)',
                             (chat_id, user_id, warned_by, reason))
@@ -666,7 +675,6 @@ def has_chat_permission(chat_id: int, user_id: int, permission: str) -> bool:
     return db.has_chat_permission(chat_id, db.get_chat_member_rank(chat_id, user_id), permission)
 
 def is_staff(user_id: int) -> bool:
-    """Проверка, является ли пользователь админом бота или агентом поддержки"""
     return has_bot_permission(user_id, "btn_admin_panel") or db.get_agent_level(user_id) > 0
 
 def format_clan_info(clan: Dict) -> str:
@@ -691,11 +699,9 @@ async def get_target_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if context.args and context.args[0].startswith('@'):
         username = context.args[0].replace('@', '')
-        # Ищем в базе
         user = db.get_user_by_username(username)
         if user:
             return user['user_id']
-        # Если нет в базе, пробуем через API (только в группах)
         chat = update.effective_chat
         if chat and chat.type != "private":
             try:
@@ -1211,6 +1217,21 @@ async def hstats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = f"📊 Ваша статистика ответов на вопросы\n━━━━━━━━━━━━━━━━\n\n✅ Отвечено вопросов: {count}"
     await update.message.reply_text(text)
 
+# ==================== КОМАНДА /onlyowner ====================
+async def onlyowner_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if user.id != FOUNDER_ID:
+        await update.message.reply_text("⛔ Только основатель бота может использовать эту команду")
+        return
+
+    current = db.get_only_owner_mode()
+    db.set_only_owner_mode(not current)
+
+    if not current:
+        await update.message.reply_text("🔒 Глобальный режим «только основатель» включён. Бот отвечает только вам.")
+    else:
+        await update.message.reply_text("🔓 Глобальный режим «только основатель» выключен. Бот снова отвечает всем.")
+
 # ==================== КОМАНДА /start ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -1298,6 +1319,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ЧС:
 /permban [ID/@username] [причина] - Добавить в ЧС
 /unperm [ID/@username] - Убрать из ЧС
+
+Для основателя:
+/onlyowner - Вкл/выкл режим «только основатель»
 
 Выберите тип обращения:"""
 
@@ -1618,6 +1642,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if db.is_blacklisted(user.id):
         await query.edit_message_text("❌ Вы в черном списке бота")
+        return
+
+    # Блокировка в глобальном режиме "только основатель"
+    if db.get_only_owner_mode() and user.id != FOUNDER_ID:
+        await query.answer("⛔ Бот временно недоступен", show_alert=True)
         return
 
     # ---------- НАГРАДЫ ----------
@@ -2391,6 +2420,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /permban [ID/@username] [причина] - Добавить в ЧС
 /unperm [ID/@username] - Убрать из ЧС
 
+Для основателя:
+/onlyowner - Вкл/выкл режим «только основатель»
+
 Выберите тип обращения:"""
         keyboard = [
             [InlineKeyboardButton("❗️ Жалоба", callback_data="help_report")],
@@ -2441,7 +2473,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += "/stats - Профиль игрока\n"
         text += "/id - Узнать ID\n"
 
-        # Модерация чата (только в группах и при наличии прав)
         if chat and chat.type != "private":
             mod_commands = ""
             if has_chat_permission(chat.id, user.id, "btn_kick"):
@@ -2456,7 +2487,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if mod_commands:
                 text += "\nМодерация чата:\n" + mod_commands
 
-            # Команды, доступные владельцу чата или админам с правом выдавать ранги
             if is_chat_owner(chat.id, user.id) or has_chat_permission(chat.id, user.id, "btn_chat_admin"):
                 text += "\n/setadm [ID/@username] [0-5] - Выдать ранг в чате\n"
                 text += "/admins - Список админов чата\n"
@@ -2489,7 +2519,11 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
 
-    # Ответ на жалобу (админ вводит текст ответа)
+    # Блокировка в глобальном режиме "только основатель"
+    if db.get_only_owner_mode() and user.id != FOUNDER_ID:
+        return
+
+    # Ответ на жалобу
     if context.user_data.get('replying_report'):
         data = context.user_data['replying_report']
         report_id = data['report_id']
@@ -2497,7 +2531,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['replying_report'] = None
         try:
             await context.bot.send_message(reporter_id, f"📩 Ответ администрации на вашу жалобу:\n\n{text}")
-            # Сохраняем, что админ ответил на эту жалобу
             db.set_report_answered_by(report_id, user.id)
             await update.message.reply_text("✅ Ответ отправлен пользователю")
         except Exception as e:
@@ -2676,7 +2709,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['question_state'] = None
         ticket_id = db.add_ticket(user.id, user.username or f"id{user.id}", text)
 
-        # Сначала агентам
         agents = db.get_all_agents()
         if agents:
             for agent in agents:
@@ -2694,8 +2726,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                 except Exception as e:
                     logger.error(f"Не удалось отправить тикет агенту {agent['user_id']}: {e}")
-
-        # Если агентов нет, отправляем админам
         else:
             admins = db.get_all_bot_admins()
             for admin in admins:
@@ -2789,6 +2819,7 @@ def main():
     application.add_handler(CommandHandler("botadmins", botadmins_command))
     application.add_handler(CommandHandler("astats", astats_command))
     application.add_handler(CommandHandler("hstats", hstats_command))
+    application.add_handler(CommandHandler("onlyowner", onlyowner_command))
 
     # Дополнительные админ-команды
     application.add_handler(CommandHandler("setrank", setrank_command))
