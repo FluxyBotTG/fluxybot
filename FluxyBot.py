@@ -1712,7 +1712,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("⛔ Только основатель", show_alert=True); return
         context.user_data['adding_super_admin'] = True
         await query.edit_message_text("Введите ID:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Отмена", callback_data="super_admins_list")]]))
-        elif data == "remove_super_admin":
+    elif data == "remove_super_admin":
         if user.id != FOUNDER_ID:
             await query.answer("⛔ Только основатель", show_alert=True); return
         context.user_data['removing_super_admin'] = True
