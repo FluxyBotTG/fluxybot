@@ -576,7 +576,10 @@ async def get_target_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 # ==================== КОМАНДА /id ====================
 async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -588,7 +591,10 @@ async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== КОМАНДА /ping ====================
 async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -600,7 +606,10 @@ async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== КОМАНДА /stats ====================
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -643,7 +652,10 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== КОМАНДА /permban ====================
 async def permban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -665,7 +677,10 @@ async def permban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== КОМАНДА /unperm ====================
 async def unperm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -681,7 +696,10 @@ async def unperm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== КОМАНДА /kick ====================
 async def kick_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -711,7 +729,10 @@ async def kick_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== КОМАНДА /warn ====================
 async def warn_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -737,7 +758,10 @@ async def warn_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== КОМАНДА /ban ====================
 async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -767,7 +791,10 @@ async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== КОМАНДА /mute ====================
 async def mute_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -815,7 +842,10 @@ async def mute_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== КОМАНДА /unmute ====================
 async def unmute_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -843,7 +873,10 @@ async def unmute_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== КОМАНДА /unban ====================
 async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -867,7 +900,10 @@ async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== КОМАНДА /unwarn ====================
 async def unwarn_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -887,7 +923,10 @@ async def unwarn_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== КОМАНДА /setadm ====================
 async def setadm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     chat = update.effective_chat
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
@@ -919,7 +958,10 @@ async def setadm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== КОМАНДА /admins ====================
 async def admins_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     chat = update.effective_chat
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
@@ -939,7 +981,10 @@ async def admins_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== КОМАНДА /botadmins ====================
 async def botadmins_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -955,7 +1000,10 @@ async def botadmins_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== КОМАНДА /astats ====================
 async def astats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -977,7 +1025,10 @@ async def astats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== КОМАНДА /hstats ====================
 async def hstats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -1012,7 +1063,10 @@ async def onlyowner_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== КОМАНДА /start ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -1049,7 +1103,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # ==================== ДОПОЛНИТЕЛЬНЫЕ АДМИН-КОМАНДЫ ====================
 async def setrank_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -1071,7 +1128,10 @@ async def setrank_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Введите числа")
 
 async def setagentlevel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -1093,7 +1153,10 @@ async def setagentlevel_command(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("❌ Введите числа")
 
 async def setsuperadmin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -1110,7 +1173,10 @@ async def setsuperadmin_command(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("❌ Введите ID")
 
 async def agents_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -1127,7 +1193,10 @@ async def agents_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 async def giverep_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -1148,7 +1217,10 @@ async def giverep_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Введите числа")
 
 async def blacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -1166,7 +1238,10 @@ async def blacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== КОМАНДА /help ====================
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -1219,7 +1294,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== КОМАНДА /report ====================
 async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -1255,7 +1333,10 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== КОМАНДА /clan_top ====================
 async def clan_top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -1272,7 +1353,10 @@ async def clan_top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== КОМАНДА /profile ====================
 async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -1293,7 +1377,10 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== КОМАНДА /clan ====================
 async def clan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -1318,7 +1405,10 @@ async def clan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== КОМАНДА /admin ====================
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -2206,7 +2296,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==================== ОБРАБОТЧИК СООБЩЕНИЙ ====================
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global ONLY_OWNER_MODE
-    user = update.effective_user
+    global ONLY_OWNER_MODE
+user = update.effective_user
+if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
+    return
     chat = update.effective_chat
     text = update.message.text
 
