@@ -37,7 +37,6 @@ CHAT_RANK_4 = 4
 CHAT_RANK_OWNER = 5
 
 # ==================== АНТИСПАМ СИСТЕМА ====================
-# Храним сообщения: {(chat_id, user_id): [timestamps]}
 message_history = {}
 
 class Database:
@@ -519,6 +518,81 @@ class Database:
         ''', (clan_id, limit))
         return [{'sender_id': r[0], 'message': r[1], 'sent_date': r[2], 'username': r[3] or 'Нет'} for r in self.cursor.fetchall()]
 
+    # ==================== ДОПОЛНИТЕЛЬНЫЕ МЕТОДЫ ====================
+    def get_all_bot_rank_names(self):
+        self.cursor.execute("SELECT rank_level, rank_name FROM bot_rank_names ORDER BY rank_level")
+        return {row[0]: row[1] for row in self.cursor.fetchall()}
+
+    def set_bot_rank_name(self, rank_level, name):
+        self.cursor.execute("INSERT OR REPLACE INTO bot_rank_names VALUES (?, ?)", (rank_level, name))
+        self.conn.commit()
+
+    def get_bot_rank_permissions(self, rank_level):
+        self.cursor.execute("SELECT permission FROM bot_rank_permissions WHERE rank_level = ?", (rank_level,))
+        return [row[0] for row in self.cursor.fetchall()]
+
+    def add_bot_rank_permission(self, rank_level, permission):
+        self.cursor.execute("INSERT OR IGNORE INTO bot_rank_permissions VALUES (?, ?)", (rank_level, permission))
+        self.conn.commit()
+
+    def remove_bot_rank_permission(self, rank_level, permission):
+        self.cursor.execute("DELETE FROM bot_rank_permissions WHERE rank_level = ? AND permission = ?", (rank_level, permission))
+        self.conn.commit()
+
+    def get_all_agent_level_names(self):
+        self.cursor.execute("SELECT level, level_name FROM agent_level_names ORDER BY level")
+        return {row[0]: row[1] for row in self.cursor.fetchall()}
+
+    def set_agent_level_name(self, level, name):
+        self.cursor.execute("INSERT OR REPLACE INTO agent_level_names VALUES (?, ?)", (level, name))
+        self.conn.commit()
+
+    def get_agent_level_permissions(self, level):
+        self.cursor.execute("SELECT permission FROM agent_level_permissions WHERE level = ?", (level,))
+        return [row[0] for row in self.cursor.fetchall()]
+
+    def has_agent_level_permission(self, level, permission):
+        self.cursor.execute("SELECT 1 FROM agent_level_permissions WHERE level = ? AND permission = ?", (level, permission))
+        return self.cursor.fetchone() is not None
+
+    def add_agent_level_permission(self, level, permission):
+        self.cursor.execute("INSERT OR IGNORE INTO agent_level_permissions VALUES (?, ?)", (level, permission))
+        self.conn.commit()
+
+    def remove_agent_level_permission(self, level, permission):
+        self.cursor.execute("DELETE FROM agent_level_permissions WHERE level = ? AND permission = ?", (level, permission))
+        self.conn.commit()
+
+    def get_chat_rank_permissions(self, chat_id, rank_level):
+        self.cursor.execute("SELECT permission FROM chat_rank_permissions WHERE chat_id = ? AND rank_level = ?", (chat_id, rank_level))
+        return [row[0] for row in self.cursor.fetchall()]
+
+    def add_chat_rank_permission(self, chat_id, rank_level, permission):
+        self.cursor.execute("INSERT OR IGNORE INTO chat_rank_permissions VALUES (?, ?, ?)", (chat_id, rank_level, permission))
+        self.conn.commit()
+
+    def remove_chat_rank_permission(self, chat_id, rank_level, permission):
+        self.cursor.execute("DELETE FROM chat_rank_permissions WHERE chat_id = ? AND rank_level = ? AND permission = ?", (chat_id, rank_level, permission))
+        self.conn.commit()
+
+    def get_all_chats(self):
+        self.cursor.execute("SELECT chat_id, chat_type, chat_title FROM chats")
+        return [{'chat_id': r[0], 'chat_type': r[1], 'chat_title': r[2]} for r in self.cursor.fetchall()]
+
+    def get_all_super_admins(self):
+        self.cursor.execute("SELECT u.user_id, u.username, u.first_name FROM super_admins sa LEFT JOIN users u ON sa.user_id = u.user_id")
+        return [{'user_id': r[0], 'username': r[1] or 'Нет', 'first_name': r[2] or 'Нет'} for r in self.cursor.fetchall()]
+
+    def add_bot_admin(self, user_id):
+        self.cursor.execute("INSERT OR IGNORE INTO bot_admins VALUES (?)", (user_id,))
+        self.set_bot_rank(user_id, 8)
+        self.conn.commit()
+
+    def remove_bot_admin(self, user_id):
+        self.cursor.execute("DELETE FROM bot_admins WHERE user_id = ?", (user_id,))
+        self.set_bot_rank(user_id, 0)
+        self.conn.commit()
+
     # ==================== НАСТРОЙКИ ЧАТА ====================
     def get_chat_settings(self, chat_id: int):
         self.cursor.execute("SELECT * FROM chat_settings WHERE chat_id = ?", (chat_id,))
@@ -529,14 +603,12 @@ class Database:
         return None
 
     def save_chat_settings(self, chat_id: int, **kwargs):
-        # Проверяем, есть ли запись
         self.cursor.execute("SELECT chat_id FROM chat_settings WHERE chat_id = ?", (chat_id,))
         exists = self.cursor.fetchone()
         
         if not exists:
             self.cursor.execute("INSERT INTO chat_settings (chat_id) VALUES (?)", (chat_id,))
         
-        # Обновляем переданные поля
         for key, value in kwargs.items():
             self.cursor.execute(f"UPDATE chat_settings SET {key} = ? WHERE chat_id = ?", (value, chat_id))
         
@@ -605,9 +677,6 @@ async def get_target_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 # ==================== ФУНКЦИЯ ПРОВЕРКИ АНТИСПАМА ====================
 async def check_antispam(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """
-    Проверяет антиспам. Возвращает True если сообщение нужно заблокировать.
-    """
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
     
@@ -621,11 +690,9 @@ async def check_antispam(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     key = (chat_id, user_id)
     timestamps = message_history.get(key, [])
     
-    # Оставляем только сообщения за последнюю секунду
     timestamps = [t for t in timestamps if now - t < 1]
     
     if len(timestamps) >= limit:
-        # Превышен лимит - кикаем
         try:
             await context.bot.ban_chat_member(chat_id, user_id)
             await context.bot.unban_chat_member(chat_id, user_id)
@@ -633,19 +700,17 @@ async def check_antispam(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 f"🚫 <b>{update.effective_user.full_name}</b> исключён за спам!",
                 parse_mode='HTML'
             )
-            # Очищаем историю
             message_history[key] = []
         except Exception as e:
             logger.error(f"Ошибка при кике за спам: {e}")
         return True
     
-    # Добавляем текущее сообщение в историю
     timestamps.append(now)
     message_history[key] = timestamps
     
     return False
 
-# ==================== КОМАНДА /id ====================
+# ==================== КОМАНДЫ ====================
 async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -657,7 +722,6 @@ async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Использование: /id [ID или @username]\nИли ответьте на сообщение пользователя")
 
-# ==================== КОМАНДА /ping ====================
 async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -669,7 +733,6 @@ async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ping = round((end_time - start_time) * 1000)
     await msg.edit_text(f"🏓 Понг!\n━━━━━━━━━━━━━━━━\n⏱️ Пинг: {ping} мс\n🕐 Время: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}")
 
-# ==================== КОМАНДА /stats ====================
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -712,7 +775,6 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-# ==================== КОМАНДА /permban ====================
 async def permban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -734,7 +796,6 @@ async def permban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.add_to_blacklist(target_id, reason)
     await update.message.reply_text(f"🚫 Пользователь {target_id} добавлен в ЧС\nПричина: {reason}")
 
-# ==================== КОМАНДА /unperm ====================
 async def unperm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -750,7 +811,6 @@ async def unperm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.remove_from_blacklist(target_id)
     await update.message.reply_text(f"✅ Пользователь {target_id} удален из ЧС")
 
-# ==================== КОМАНДА /kick ====================
 async def kick_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -780,7 +840,6 @@ async def kick_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка: {e}")
 
-# ==================== КОМАНДА /warn ====================
 async def warn_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -806,7 +865,6 @@ async def warn_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.add_warning(chat.id, target_id, user.id, reason)
     await update.message.reply_text(f"⚠️ Пользователь {target_id} получил предупреждение\nПричина: {reason}")
 
-# ==================== КОМАНДА /ban ====================
 async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -836,7 +894,6 @@ async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка: {e}")
 
-# ==================== КОМАНДА /mute ====================
 async def mute_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -884,7 +941,6 @@ async def mute_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка: {e}")
 
-# ==================== КОМАНДА /unmute ====================
 async def unmute_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -912,7 +968,6 @@ async def unmute_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка: {e}")
 
-# ==================== КОМАНДА /unban ====================
 async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -936,7 +991,6 @@ async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка: {e}")
 
-# ==================== КОМАНДА /unwarn ====================
 async def unwarn_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -956,7 +1010,6 @@ async def unwarn_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.remove_warning(chat.id, target_id)
     await update.message.reply_text(f"✅ Предупреждение с пользователя {target_id} снято")
 
-# ==================== КОМАНДА /setadm ====================
 async def setadm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
@@ -988,7 +1041,6 @@ async def setadm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rank_name = db.get_rank_name(chat.id, rank)
     await update.message.reply_text(f"✅ Пользователь {target_id} получил ранг «{rank_name}»")
 
-# ==================== КОМАНДА /admins ====================
 async def admins_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
@@ -1008,7 +1060,6 @@ async def admins_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text += f"• {admin['first_name']} (@{admin['username']})\n  Ранг: {rank_name} ({admin['chat_rank']})\n  ID: {admin['user_id']}\n\n"
     await update.message.reply_text(text)
 
-# ==================== КОМАНДА /botadmins ====================
 async def botadmins_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -1024,7 +1075,6 @@ async def botadmins_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text += f"• {admin['first_name']} (@{admin['username']})\n  Ранг: {rank_name}\n  ID: {admin['user_id']}\n\n"
     await update.message.reply_text(text)
 
-# ==================== КОМАНДА /astats ====================
 async def astats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -1046,7 +1096,6 @@ async def astats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = f"📊 Ваша статистика ответов на жалобы\n━━━━━━━━━━━━━━━━\n\n✅ Отвечено жалоб: {count}"
     await update.message.reply_text(text)
 
-# ==================== КОМАНДА /hstats ====================
 async def hstats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -1068,7 +1117,6 @@ async def hstats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = f"📊 Ваша статистика ответов на вопросы\n━━━━━━━━━━━━━━━━\n\n✅ Отвечено вопросов: {count}"
     await update.message.reply_text(text)
 
-# ==================== КОМАНДА /onlyowner ====================
 async def onlyowner_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global ONLY_OWNER_MODE
     user = update.effective_user
@@ -1081,7 +1129,6 @@ async def onlyowner_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("🔓 Глобальный режим «только основатель» выключен. Бот снова отвечает всем.")
 
-# ==================== КОМАНДА /start ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -1118,7 +1165,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard.append([InlineKeyboardButton("🔰 Агенты поддержки", callback_data="agents_list")])
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-# ==================== КОМАНДА /help ====================
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -1138,7 +1184,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /clan_top - Топ кланов
 /report - Жалоба
 """
-    # Модерация видна только при наличии прав
     if update.effective_chat and update.effective_chat.type != "private":
         chat = update.effective_chat
         if has_chat_permission(chat.id, user.id, "btn_kick"):
@@ -1151,7 +1196,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text += "/mute [ID/@username] [время] [причина]\n/unmute [ID/@username]\n"
         if is_chat_owner(chat.id, user.id) or has_chat_permission(chat.id, user.id, "btn_chat_admin"):
             text += "\n/setadm [ID/@username] [0-5] - Выдать ранг в чате\n/admins - Список админов чата\n"
-    # Админ-команды
     if has_bot_permission(user.id, "btn_blacklist"):
         text += "\nЧС:\n/permban [ID] [причина]\n/unperm [ID]\n"
     if has_astats_permission(user.id):
@@ -1168,7 +1212,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-# ==================== КОМАНДА /report ====================
 async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -1204,7 +1247,6 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Ошибка отправки жалобы админу {admin['user_id']}: {e}")
     await update.message.reply_text("✅ Жалоба отправлена администрации")
 
-# ==================== КОМАНДА /clan_top ====================
 async def clan_top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -1221,7 +1263,6 @@ async def clan_top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += f"{medal} {clan['name']} — {clan['rating']}\n"
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Выход", callback_data="start_menu")]]))
 
-# ==================== КОМАНДА /profile ====================
 async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -1242,7 +1283,6 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("🏆 Награды", callback_data=f"show_awards_{user.id}")]]
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-# ==================== КОМАНДА /clan ====================
 async def clan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -1266,8 +1306,124 @@ async def clan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("⬅️ Выход", callback_data="start_menu")]
         ]
         await update.message.reply_text(format_clan_info(clan), reply_markup=InlineKeyboardMarkup(keyboard))
+        
+        async def setrank_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        	user = update.effective_user
+    if is_blacklisted_check(user.id):
+        await update.message.reply_text("❌ Вы в черном списке бота")
+        return
+    if not is_super_admin(user.id):
+        await update.message.reply_text("⛔ Только супер-админ")
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text("/setrank [ID] [ранг 0-10]")
+        return
+    try:
+        target_id = int(context.args[0])
+        rank = int(context.args[1])
+        if rank < 0 or rank > 10:
+            await update.message.reply_text("❌ Ранг 0-10")
+            return
+        db.set_bot_rank(target_id, rank)
+        await update.message.reply_text(f"✅ Ранг: {db.get_bot_rank_name(target_id)}")
+    except ValueError:
+        await update.message.reply_text("❌ Введите числа")
 
-# ==================== ДОПОЛНИТЕЛЬНЫЕ АДМИН-КОМАНДЫ ====================
+async def setagentlevel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_blacklisted_check(user.id):
+        await update.message.reply_text("❌ Вы в черном списке бота")
+        return
+    if not is_super_admin(user.id):
+        await update.message.reply_text("⛔ Только супер-админ")
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text("/setagentlevel [ID] [уровень 0-3]")
+        return
+    try:
+        target_id = int(context.args[0])
+        level = int(context.args[1])
+        if level < 0 or level > 3:
+            await update.message.reply_text("❌ Уровень 0-3")
+            return
+        db.set_agent_level(target_id, level)
+        await update.message.reply_text(f"✅ Уровень: {db.get_agent_level_name(target_id)}")
+    except ValueError:
+        await update.message.reply_text("❌ Введите числа")
+
+async def setsuperadmin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_blacklisted_check(user.id):
+        await update.message.reply_text("❌ Вы в черном списке бота")
+        return
+    if user.id != FOUNDER_ID:
+        await update.message.reply_text("⛔ Только основатель")
+        return
+    if not context.args:
+        await update.message.reply_text("/setsuperadmin [ID]")
+        return
+    try:
+        db.add_super_admin(int(context.args[0]))
+        await update.message.reply_text("✅ Супер-админ назначен")
+    except ValueError:
+        await update.message.reply_text("❌ Введите ID")
+
+async def agents_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_blacklisted_check(user.id):
+        await update.message.reply_text("❌ Вы в черном списке бота")
+        return
+    if not (has_bot_permission(user.id, "btn_agents_list") or db.get_agent_level(user.id) > 0):
+        await update.message.reply_text("⛔ Нет доступа")
+        return
+    agents = db.get_all_agents()
+    text = "🔰 Агенты поддержки\n━━━━━━━━━━━━━━━━\n\n"
+    if not agents:
+        text += "Нет агентов"
+    else:
+        for agent in agents:
+            text += f"• {agent['first_name']} (@{agent['username']})\n  Уровень: {db.get_agent_level_name(agent['user_id'])}\n\n"
+    await update.message.reply_text(text)
+
+async def giverep_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_blacklisted_check(user.id):
+        await update.message.reply_text("❌ Вы в черном списке бота")
+        return
+    if not has_bot_permission(user.id, "btn_give_rep"):
+        await update.message.reply_text("⛔ Нет доступа")
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text("/giverep [ID клана] [количество]")
+        return
+    try:
+        clan_id = int(context.args[0])
+        rating = int(context.args[1])
+        clan = db.get_clan(clan_id)
+        if clan:
+            db.add_clan_rating(clan_id, rating)
+            await update.message.reply_text(f"✅ Клану {clan['name']} +{rating}")
+    except ValueError:
+        await update.message.reply_text("❌ Введите числа")
+
+async def blacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_blacklisted_check(user.id):
+        await update.message.reply_text("❌ Вы в черном списке бота")
+        return
+    if not has_bot_permission(user.id, "btn_blacklist"):
+        await update.message.reply_text("⛔ Нет доступа")
+        return
+    blacklist = db.get_blacklist()
+    text = "🚫 Черный список\n━━━━━━━━━━━━━━━━\n\n"
+    if not blacklist:
+        text += "Пуст"
+    else:
+        for u in blacklist:
+            text += f"• {u['first_name']} (@{u['username']})\n  ID: {u['user_id']}\n  Причина: {u['reason']}\n\n"
+    await update.message.reply_text(text)
+    
+    # ==================== ДОПОЛНИТЕЛЬНЫЕ АДМИН-КОМАНДЫ ====================
 async def setrank_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -1384,7 +1540,6 @@ async def blacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text += f"• {u['first_name']} (@{u['username']})\n  ID: {u['user_id']}\n  Причина: {u['reason']}\n\n"
     await update.message.reply_text(text)
 
-# ==================== СПИСКИ ПРАВ ДЛЯ КНОПОК ====================
 BOT_BUTTON_PERMISSIONS = {
     "btn_admin_panel": "⭐️ Админ панель",
     "btn_admins_list": "👥 Админы бота",
@@ -1438,7 +1593,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("⛔ Бот временно недоступен", show_alert=True)
         return
 
-    # Награды
     if data.startswith("give_award_"):
         target_id = int(data.split("_")[-1])
         context.user_data['awarding_user'] = target_id
@@ -1472,7 +1626,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text += f"🏅 {award['award_text']}\n   От: @{award['awarded_by_username']}\n   {time_str}\n\n"
         await query.edit_message_text(text)
 
-    # Ответ на жалобу
     elif data.startswith("reply_report_"):
         parts = data.split("_")
         report_id = int(parts[2])
@@ -1483,7 +1636,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['replying_report'] = None
         await query.edit_message_text("❌ Отправка ответа отменена")
 
-    # Главное меню
     elif data == "start_menu":
         text = f"""👋 Добро пожаловать в Fluxy | Чат-менеджер.
 ━━━━━━━━━━━━━━━━
@@ -1505,7 +1657,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton("🔰 Агенты поддержки", callback_data="agents_list")])
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-    # Админ-панель бота
     elif data == "admin_panel":
         if not has_bot_permission(user.id, "btn_admin_panel"):
             await query.edit_message_text("⛔ У вас нет доступа")
@@ -1555,7 +1706,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append(row)
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-    # Управление админами
     elif data == "bot_admins_list":
         if not has_bot_permission(user.id, "btn_admins_list"): return
         admins = db.get_all_bot_admins()
@@ -1582,7 +1732,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['changing_admin_rank'] = True
         await query.edit_message_text("Введите ID админа и новый ранг (0-10) через пробел:\nНапример: 123456789 8", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Отмена", callback_data="bot_admins_list")]]))
 
-    # Управление агентами
     elif data == "list_agents":
         if not has_bot_permission(user.id, "btn_agents_list"): return
         agents = db.get_all_agents()
@@ -1608,7 +1757,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['changing_agent_level'] = True
         await query.edit_message_text("Введите ID и уровень (1-3) через пробел:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Отмена", callback_data="list_agents")]]))
 
-    # Черный список
     elif data == "black_list":
         if not has_bot_permission(user.id, "btn_blacklist"): return
         blacklist = db.get_blacklist()
@@ -1620,13 +1768,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text += f"• {u['first_name']} (@{u['username']})\n  ID: {u['user_id']}\n  Причина: {u['reason']}\n\n"
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Выход", callback_data="admin_panel")]]))
 
-    # Репутация
     elif data == "give_rep":
         if not has_bot_permission(user.id, "btn_give_rep"): return
         text = "⭐️ Выдать репутацию клану\n━━━━━━━━━━━━━━━━\n\nИспользуйте команду:\n/giverep [ID клана] [количество]"
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Выход", callback_data="admin_panel")]]))
 
-    # Ранги бота
     elif data == "bot_ranks":
         if not has_bot_permission(user.id, "btn_ranks"): return
         text = "📊 Ранги бота\n━━━━━━━━━━━━━━━━\n\n"
@@ -1648,7 +1794,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['editing_bot_rank'] = rank_level
         await query.edit_message_text(f"Введите новое название для ранга {rank_level}:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Отмена", callback_data="bot_rank_names")]]))
 
-    # Права рангов бота
     elif data == "bot_rank_permissions":
         if not has_bot_permission(user.id, "btn_rank_perms"): return
         text = "⚙️ Права рангов бота\n━━━━━━━━━━━━━━━━\n\nВыберите ранг (1-9):"
@@ -1694,7 +1839,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton("⬅️ Выход", callback_data="bot_rank_permissions")])
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-    # Супер-админы
     elif data == "super_admins_list":
         if not has_bot_permission(user.id, "btn_super_admins"): return
         super_admins = db.get_all_super_admins()
@@ -1718,7 +1862,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['removing_super_admin'] = True
         await query.edit_message_text("Введите ID:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Отмена", callback_data="super_admins_list")]]))
 
-    # Уровни агентов
     elif data == "agent_levels":
         if not has_bot_permission(user.id, "btn_agent_levels"): return
         text = "📊 Уровни агентов\n━━━━━━━━━━━━━━━━\n\n"
@@ -1741,7 +1884,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['editing_agent_level'] = level
         await query.edit_message_text(f"Введите новое название для уровня {level}:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Отмена", callback_data="agent_level_names")]]))
 
-    # Права уровней агентов
     elif data == "agent_level_permissions":
         if not has_bot_permission(user.id, "btn_agent_perms"): return
         text = "⚙️ Права уровней агентов\n━━━━━━━━━━━━━━━━\n\nВыберите уровень (1-3):"
@@ -1787,7 +1929,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton("⬅️ Выход", callback_data="agent_level_permissions")])
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-    # Все команды и чаты
     elif data == "all_commands":
         if not has_bot_permission(user.id, "btn_commands"): return
         text = "📋 Все команды бота\n━━━━━━━━━━━━━━━━\n\n"
@@ -1804,7 +1945,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text += f"• {chat_info['chat_title']} ({chat_info['chat_type']})\n  ID: {chat_info['chat_id']}\n\n"
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Выход", callback_data="admin_panel")]]))
 
-    # Админ-панель чата
     elif data == "chat_admin_panel":
         if not chat or chat.type == "private":
             await query.edit_message_text("⛔ Только для групп"); return
@@ -1841,7 +1981,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton("⬅️ Выход", callback_data="start_menu")])
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-    # 🆕 АНТИСПАМ НАСТРОЙКИ
     elif data == "antispam_settings":
         if not chat or chat.type == "private": return
         settings = db.get_chat_settings(chat.id)
@@ -1906,7 +2045,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Отмена", callback_data="antispam_settings")]])
         )
     
-    # 🆕 ПРИВЕТСТВИЕ НАСТРОЙКИ
     elif data == "welcome_settings":
         if not chat or chat.type == "private": return
         settings = db.get_chat_settings(chat.id)
@@ -2062,7 +2200,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['editing_chat_rank'] = rank_level
         await query.edit_message_text(f"Введите новое название для ранга {rank_level}:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Отмена", callback_data="chat_rank_names")]]))
 
-    # Профиль
     elif data == "profile":
         clan = db.get_user_clan(user.id)
         clan_name = clan['name'] if clan else "Нет клана"
@@ -2087,7 +2224,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-    # Кланы
     elif data == "clan_menu":
         clan = db.get_user_clan(user.id)
         if not clan:
@@ -2213,7 +2349,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "inbox_pm":
         await query.edit_message_text("📥 Входящие сообщения\n━━━━━━━━━━━━━━━━\n\nНет входящих")
 
-    # Помощь
     elif data == "help":
         text = """❓ Помощь
 ━━━━━━━━━━━━━━━━
@@ -2266,7 +2401,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = "❓ Вопрос\n━━━━━━━━━━━━━━━━\n\nНапишите ваш вопрос одним сообщением."
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Отмена", callback_data="help")]]))
 
-    # Тикеты
     elif data.startswith("accept_ticket_"):
         ticket_id = int(data.split("_")[-1])
         ticket = db.get_ticket(ticket_id)
@@ -2283,7 +2417,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.close_ticket(ticket_id, "Закрыт без ответа")
         await query.edit_message_text(f"✅ Тикет #{ticket_id} закрыт")
 
-    # Команды
     elif data == "commands":
         text = "📋 Доступные команды\n━━━━━━━━━━━━━━━━\n\n"
         text += "/profile - Профиль\n"
@@ -2331,7 +2464,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Выход", callback_data="start_menu")]])
         )
 
-    # Агенты (для пользователей)
     elif data == "agents_list":
         agents = db.get_all_agents()
         text = "🔰 Агенты поддержки\n━━━━━━━━━━━━━━━━\n\n"
@@ -2342,80 +2474,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text += f"• @{agent['username']} - {db.get_agent_level_name(agent['user_id'])}\n"
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Выход", callback_data="start_menu")]]))
 
-# ==================== ДОПОЛНИТЕЛЬНЫЕ КОМАНДЫ ====================
-async def setsuperadmin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if is_blacklisted_check(user.id):
-        await update.message.reply_text("❌ Вы в черном списке бота")
-        return
-    if user.id != FOUNDER_ID:
-        await update.message.reply_text("⛔ Только основатель")
-        return
-    if not context.args:
-        await update.message.reply_text("/setsuperadmin [ID]")
-        return
-    try:
-        db.add_super_admin(int(context.args[0]))
-        await update.message.reply_text("✅ Супер-админ назначен")
-    except ValueError:
-        await update.message.reply_text("❌ Введите ID")
-
-async def agents_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if is_blacklisted_check(user.id):
-        await update.message.reply_text("❌ Вы в черном списке бота")
-        return
-    if not (has_bot_permission(user.id, "btn_agents_list") or db.get_agent_level(user.id) > 0):
-        await update.message.reply_text("⛔ Нет доступа")
-        return
-    agents = db.get_all_agents()
-    text = "🔰 Агенты поддержки\n━━━━━━━━━━━━━━━━\n\n"
-    if not agents:
-        text += "Нет агентов"
-    else:
-        for agent in agents:
-            text += f"• {agent['first_name']} (@{agent['username']})\n  Уровень: {db.get_agent_level_name(agent['user_id'])}\n\n"
-    await update.message.reply_text(text)
-
-async def giverep_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if is_blacklisted_check(user.id):
-        await update.message.reply_text("❌ Вы в черном списке бота")
-        return
-    if not has_bot_permission(user.id, "btn_give_rep"):
-        await update.message.reply_text("⛔ Нет доступа")
-        return
-    if len(context.args) < 2:
-        await update.message.reply_text("/giverep [ID клана] [количество]")
-        return
-    try:
-        clan_id = int(context.args[0])
-        rating = int(context.args[1])
-        clan = db.get_clan(clan_id)
-        if clan:
-            db.add_clan_rating(clan_id, rating)
-            await update.message.reply_text(f"✅ Клану {clan['name']} +{rating}")
-    except ValueError:
-        await update.message.reply_text("❌ Введите числа")
-
-async def blacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if is_blacklisted_check(user.id):
-        await update.message.reply_text("❌ Вы в черном списке бота")
-        return
-    if not has_bot_permission(user.id, "btn_blacklist"):
-        await update.message.reply_text("⛔ Нет доступа")
-        return
-    blacklist = db.get_blacklist()
-    text = "🚫 Черный список\n━━━━━━━━━━━━━━━━\n\n"
-    if not blacklist:
-        text += "Пуст"
-    else:
-        for u in blacklist:
-            text += f"• {u['first_name']} (@{u['username']})\n  ID: {u['user_id']}\n  Причина: {u['reason']}\n\n"
-    await update.message.reply_text(text)
-
-# ==================== ОБРАБОТЧИК СООБЩЕНИЙ ====================
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global ONLY_OWNER_MODE
     user = update.effective_user
@@ -2431,11 +2489,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if ONLY_OWNER_MODE and user.id != FOUNDER_ID:
         return
 
-    # 🆕 АНТИСПАМ ПРОВЕРКА
     if await check_antispam(update, context):
         return
 
-    # 🆕 Изменение лимита антиспама
     if context.user_data.get('changing_antispam_limit'):
         context.user_data['changing_antispam_limit'] = False
         try:
@@ -2452,7 +2508,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Введите число!")
         return
 
-    # 🆕 Изменение текста приветствия
     if context.user_data.get('changing_welcome_text'):
         context.user_data['changing_welcome_text'] = False
         welcome_text = text.strip()
@@ -2466,7 +2521,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Ответ на жалобу
     if context.user_data.get('replying_report'):
         data = context.user_data['replying_report']
         report_id = data['report_id']
@@ -2480,7 +2534,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Не удалось отправить ответ: {e}")
         return
 
-    # Выдача награды
     if context.user_data.get('awarding_user'):
         target_id = context.user_data['awarding_user']
         context.user_data['awarding_user'] = None
@@ -2488,7 +2541,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"🏅 Награда выдана пользователю {target_id}:\n{text}")
         return
 
-    # Ответ на тикет
     if context.user_data.get('answering_ticket'):
         ticket_id = context.user_data['answering_ticket']
         context.user_data['answering_ticket'] = None
@@ -2502,7 +2554,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"✅ Ответ отправлен. Тикет #{ticket_id} закрыт.")
         return
 
-    # Создание клана
     if context.user_data.get('creating_clan'):
         context.user_data['creating_clan'] = False
         try:
@@ -2512,7 +2563,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Клан с таким названием уже существует")
         return
 
-    # Отправка сообщения в клан
     if context.user_data.get('sending_clan_message'):
         context.user_data['sending_clan_message'] = False
         clan = db.get_user_clan(user.id)
@@ -2523,7 +2573,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Вы не состоите в клане")
         return
 
-    # Изменение названия ранга чата
     if context.user_data.get('editing_chat_rank') is not None:
         rank_level = context.user_data['editing_chat_rank']
         context.user_data['editing_chat_rank'] = None
@@ -2534,7 +2583,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⛔ У вас нет прав")
         return
 
-    # Изменение названия ранга бота
     if context.user_data.get('editing_bot_rank') is not None:
         rank_level = context.user_data['editing_bot_rank']
         context.user_data['editing_bot_rank'] = None
@@ -2542,7 +2590,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ Название ранга {rank_level} изменено на: {text}")
         return
 
-    # Изменение названия уровня агента
     if context.user_data.get('editing_agent_level') is not None:
         level = context.user_data['editing_agent_level']
         context.user_data['editing_agent_level'] = None
@@ -2550,7 +2597,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ Название уровня {level} изменено на: {text}")
         return
 
-    # Добавление/удаление админов
     if context.user_data.get('adding_admin'):
         context.user_data['adding_admin'] = False
         try:
@@ -2569,7 +2615,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Введите числовой ID")
         return
 
-    # Изменение ранга админа
     if context.user_data.get('changing_admin_rank'):
         context.user_data['changing_admin_rank'] = False
         try:
@@ -2588,7 +2633,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Введите числовые значения")
         return
 
-    # Супер-админы
     if context.user_data.get('adding_super_admin'):
         context.user_data['adding_super_admin'] = False
         try:
@@ -2607,7 +2651,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Введите числовой ID")
         return
 
-    # Агенты
     if context.user_data.get('adding_agent'):
         context.user_data['adding_agent'] = False
         try:
@@ -2644,7 +2687,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Введите числовые значения")
         return
 
-    # Вопрос в поддержку
     if context.user_data.get('question_state') == 'waiting_question':
         context.user_data['question_state'] = None
         ticket_id = db.add_ticket(user.id, user.username or f"id{user.id}", text)
@@ -2683,7 +2725,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("✅ Ваш вопрос отправлен агентам поддержки")
         return
 
-    # Война: шаг 1
     if context.user_data.get('war_state') == 'waiting_target':
         try:
             target_clan_id = int(text)
@@ -2698,7 +2739,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Введите числовой ID клана")
         return
 
-    # Война: шаг 2
     elif context.user_data.get('war_state') == 'waiting_rating':
         try:
             rating = int(text)
@@ -2719,9 +2759,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
-# ==================== ПРИВЕТСТВИЕ НОВЫХ УЧАСТНИКОВ ====================
 async def welcome_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отправляет приветствие новым участникам"""
     chat_id = update.effective_chat.id
     
     settings = db.get_chat_settings(chat_id)
@@ -2736,11 +2774,9 @@ async def welcome_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(text, parse_mode='HTML')
 
 
-# ==================== ГЛАВНАЯ ФУНКЦИЯ ====================
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # Регистрация команд
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("ping", ping_command))
@@ -2751,7 +2787,6 @@ def main():
     application.add_handler(CommandHandler("profile", profile_command))
     application.add_handler(CommandHandler("clan", clan_command))
 
-    # Модерация
     application.add_handler(CommandHandler("kick", kick_command))
     application.add_handler(CommandHandler("warn", warn_command))
     application.add_handler(CommandHandler("ban", ban_command))
@@ -2760,11 +2795,9 @@ def main():
     application.add_handler(CommandHandler("unban", unban_command))
     application.add_handler(CommandHandler("unwarn", unwarn_command))
 
-    # ЧС
     application.add_handler(CommandHandler("permban", permban_command))
     application.add_handler(CommandHandler("unperm", unperm_command))
 
-    # Новые команды
     application.add_handler(CommandHandler("setadm", setadm_command))
     application.add_handler(CommandHandler("admins", admins_command))
     application.add_handler(CommandHandler("botadmins", botadmins_command))
@@ -2772,7 +2805,6 @@ def main():
     application.add_handler(CommandHandler("hstats", hstats_command))
     application.add_handler(CommandHandler("onlyowner", onlyowner_command))
 
-    # Доп. админ-команды
     application.add_handler(CommandHandler("setrank", setrank_command))
     application.add_handler(CommandHandler("setagentlevel", setagentlevel_command))
     application.add_handler(CommandHandler("setsuperadmin", setsuperadmin_command))
@@ -2780,10 +2812,8 @@ def main():
     application.add_handler(CommandHandler("giverep", giverep_command))
     application.add_handler(CommandHandler("blacklist", blacklist_command))
 
-    # Callback и сообщения
     application.add_handler(CallbackQueryHandler(button_handler))
     
-    # 🆕 Обработчик новых участников
     application.add_handler(MessageHandler(
         filters.StatusUpdate.NEW_CHAT_MEMBERS,
         welcome_new_members
