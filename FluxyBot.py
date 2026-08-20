@@ -2519,7 +2519,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
 
-    # Блокировка в глобальном режиме "только основатель"
+    # 🔒 Проверка глобального режима "только основатель"
     if db.get_only_owner_mode() and user.id != FOUNDER_ID:
         return
 
