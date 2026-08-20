@@ -1046,6 +1046,123 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard.append([InlineKeyboardButton("❓ Помощь", callback_data="help"), InlineKeyboardButton("📋 Команды", callback_data="commands")])
     keyboard.append([InlineKeyboardButton("🔰 Агенты поддержки", callback_data="agents_list")])
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    
+    # ==================== ДОПОЛНИТЕЛЬНЫЕ АДМИН-КОМАНДЫ ====================
+async def setrank_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_blacklisted_check(user.id):
+        await update.message.reply_text("❌ Вы в черном списке бота")
+        return
+    if not is_super_admin(user.id):
+        await update.message.reply_text("⛔ Только супер-админ")
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text("/setrank [ID] [ранг 0-10]")
+        return
+    try:
+        target_id = int(context.args[0])
+        rank = int(context.args[1])
+        if rank < 0 or rank > 10:
+            await update.message.reply_text("❌ Ранг 0-10")
+            return
+        db.set_bot_rank(target_id, rank)
+        await update.message.reply_text(f"✅ Ранг: {db.get_bot_rank_name(target_id)}")
+    except ValueError:
+        await update.message.reply_text("❌ Введите числа")
+
+async def setagentlevel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_blacklisted_check(user.id):
+        await update.message.reply_text("❌ Вы в черном списке бота")
+        return
+    if not is_super_admin(user.id):
+        await update.message.reply_text("⛔ Только супер-админ")
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text("/setagentlevel [ID] [уровень 0-3]")
+        return
+    try:
+        target_id = int(context.args[0])
+        level = int(context.args[1])
+        if level < 0 or level > 3:
+            await update.message.reply_text("❌ Уровень 0-3")
+            return
+        db.set_agent_level(target_id, level)
+        await update.message.reply_text(f"✅ Уровень: {db.get_agent_level_name(target_id)}")
+    except ValueError:
+        await update.message.reply_text("❌ Введите числа")
+
+async def setsuperadmin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_blacklisted_check(user.id):
+        await update.message.reply_text("❌ Вы в черном списке бота")
+        return
+    if user.id != FOUNDER_ID:
+        await update.message.reply_text("⛔ Только основатель")
+        return
+    if not context.args:
+        await update.message.reply_text("/setsuperadmin [ID]")
+        return
+    try:
+        db.add_super_admin(int(context.args[0]))
+        await update.message.reply_text("✅ Супер-админ назначен")
+    except ValueError:
+        await update.message.reply_text("❌ Введите ID")
+
+async def agents_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_blacklisted_check(user.id):
+        await update.message.reply_text("❌ Вы в черном списке бота")
+        return
+    if not (has_bot_permission(user.id, "btn_agents_list") or db.get_agent_level(user.id) > 0):
+        await update.message.reply_text("⛔ Нет доступа")
+        return
+    agents = db.get_all_agents()
+    text = "🔰 Агенты поддержки\n━━━━━━━━━━━━━━━━\n\n"
+    if not agents:
+        text += "Нет агентов"
+    else:
+        for agent in agents:
+            text += f"• {agent['first_name']} (@{agent['username']})\n  Уровень: {db.get_agent_level_name(agent['user_id'])}\n\n"
+    await update.message.reply_text(text)
+
+async def giverep_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_blacklisted_check(user.id):
+        await update.message.reply_text("❌ Вы в черном списке бота")
+        return
+    if not has_bot_permission(user.id, "btn_give_rep"):
+        await update.message.reply_text("⛔ Нет доступа")
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text("/giverep [ID клана] [количество]")
+        return
+    try:
+        clan_id = int(context.args[0])
+        rating = int(context.args[1])
+        clan = db.get_clan(clan_id)
+        if clan:
+            db.add_clan_rating(clan_id, rating)
+            await update.message.reply_text(f"✅ Клану {clan['name']} +{rating}")
+    except ValueError:
+        await update.message.reply_text("❌ Введите числа")
+
+async def blacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_blacklisted_check(user.id):
+        await update.message.reply_text("❌ Вы в черном списке бота")
+        return
+    if not has_bot_permission(user.id, "btn_blacklist"):
+        await update.message.reply_text("⛔ Нет доступа")
+        return
+    blacklist = db.get_blacklist()
+    text = "🚫 Черный список\n━━━━━━━━━━━━━━━━\n\n"
+    if not blacklist:
+        text += "Пуст"
+    else:
+        for u in blacklist:
+            text += f"• {u['first_name']} (@{u['username']})\n  ID: {u['user_id']}\n  Причина: {u['reason']}\n\n"
+    await update.message.reply_text(text)
 
 # ==================== КОМАНДА /help ====================
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
