@@ -1298,7 +1298,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /clan_top - Топ кланов
 /report - Жалоба
 
-Модерация:
+Модерация чата:
 /kick [ID/@username] - Кикнуть
 /warn [ID/@username] - Предупредить
 /ban [ID/@username] - Забанить
@@ -1307,23 +1307,24 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /unban [ID/@username] - Разбанить
 /unwarn [ID/@username] - Снять предупреждение
 /setadm [ID/@username] [0-5] - Выдать ранг в чате
-
-Списки:
 /admins - Админы чата
-/botadmins - Админы бота
+"""
 
-Статистика:
-/astats - Статистика ответов на жалобы
-/hstats - Статистика ответов на вопросы
+    # Показываем административные команды только тем, у кого есть права
+    if has_bot_permission(user.id, "btn_blacklist"):
+        text += "\nЧС:\n/permban [ID/@username] [причина] - Добавить в ЧС\n/unperm [ID/@username] - Убрать из ЧС\n"
 
-ЧС:
-/permban [ID/@username] [причина] - Добавить в ЧС
-/unperm [ID/@username] - Убрать из ЧС
+    if has_astats_permission(user.id):
+        text += "\n/astats - Статистика ответов на жалобы\n"
 
-Для основателя:
-/onlyowner - Вкл/выкл режим «только основатель»
+    if has_hstats_permission(user.id):
+        text += "\n/hstats - Статистика ответов на вопросы\n"
 
-Выберите тип обращения:"""
+    if user.id == FOUNDER_ID:
+        text += "\n/onlyowner - Вкл/выкл режим «только основатель»\n"
+        text += "/botadmins - Админы бота\n"
+
+    text += "\nВыберите тип обращения:"
 
     keyboard = [
         [InlineKeyboardButton("❗️ Жалоба", callback_data="help_report")],
@@ -2433,7 +2434,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "help_report":
         text = "❗️ Жалоба\n━━━━━━━━━━━━━━━━\n\nОтветьте на сообщение нарушителя командой:\n/report <причина>"
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Выход", callback_data="help")]]))
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Выход", callback_data="help")]])
+        )
 
     elif data == "help_question":
         if is_staff(user.id):
@@ -2441,7 +2445,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         context.user_data['question_state'] = 'waiting_question'
         text = "❓ Вопрос\n━━━━━━━━━━━━━━━━\n\nНапишите ваш вопрос одним сообщением."
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Отмена", callback_data="help")]]))
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Отмена", callback_data="help")]])
+        )
 
     # ---------- ТИКЕТЫ ----------
     elif data.startswith("accept_ticket_"):
@@ -2490,6 +2497,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if is_chat_owner(chat.id, user.id) or has_chat_permission(chat.id, user.id, "btn_chat_admin"):
                 text += "\n/setadm [ID/@username] [0-5] - Выдать ранг в чате\n"
                 text += "/admins - Список админов чата\n"
+
+        if has_bot_permission(user.id, "btn_blacklist"):
+            text += "\nЧС:\n/permban [ID] [причина]\n/unperm [ID]\n"
+
+        if has_astats_permission(user.id):
+            text += "\n/astats - Статистика жалоб\n"
+
+        if has_hstats_permission(user.id):
+            text += "\n/hstats - Статистика вопросов\n"
+
+        if user.id == FOUNDER_ID:
+            text += "\n/onlyowner - Режим «только основатель»\n"
+            text += "/botadmins - Админы бота\n"
 
         await query.edit_message_text(
             text,
