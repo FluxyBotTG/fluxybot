@@ -35,7 +35,12 @@ CHAT_RANK_1 = 1
 CHAT_RANK_2 = 2
 CHAT_RANK_3 = 3
 CHAT_RANK_4 = 4
-CHAT_RANK_OWNER = 5
+CHAT_RANK_5 = 5
+CHAT_RANK_6 = 6
+CHAT_RANK_7 = 7
+CHAT_RANK_8 = 8
+CHAT_RANK_9 = 9
+CHAT_RANK_OWNER = 10
 
 message_history = {}
 
@@ -224,9 +229,19 @@ class Database:
                 self.cursor.execute("INSERT OR IGNORE INTO agent_level_permissions VALUES (?, ?)", (level, p))
         self.cursor.execute("SELECT chat_id FROM chats")
         for (chat_id,) in self.cursor.fetchall():
-            for level, name in {0:"Пользователь",1:"Ранг 1",2:"Ранг 2",3:"Ранг 3",4:"Ранг 4",5:"Владелец"}.items():
+            for level, name in {0:"Пользователь",1:"Ранг 1",2:"Ранг 2",3:"Ранг 3",4:"Ранг 4",5:"Ранг 5",6:"Ранг 6",7:"Ранг 7",8:"Ранг 8",9:"Ранг 9",10:"Владелец"}.items():
                 self.cursor.execute("INSERT OR IGNORE INTO chat_rank_names VALUES (?, ?, ?)", (chat_id, level, name))
-            for rank, perms in {1:["btn_chat_admin"],2:["btn_chat_admin","btn_kick"],3:["btn_chat_admin","btn_kick","btn_warn","btn_mute"],4:["btn_chat_admin","btn_kick","btn_warn","btn_mute","btn_ban"]}.items():
+            for rank, perms in {
+    1:["btn_chat_admin"],
+    2:["btn_chat_admin","btn_kick"],
+    3:["btn_chat_admin","btn_kick","btn_warn"],
+    4:["btn_chat_admin","btn_kick","btn_warn","btn_mute"],
+    5:["btn_chat_admin","btn_kick","btn_warn","btn_mute"],
+    6:["btn_chat_admin","btn_kick","btn_warn","btn_mute","btn_ban"],
+    7:["btn_chat_admin","btn_kick","btn_warn","btn_mute","btn_ban"],
+    8:["btn_chat_admin","btn_kick","btn_warn","btn_mute","btn_ban"],
+    9:["btn_chat_admin","btn_kick","btn_warn","btn_mute","btn_ban"]
+}.items():
                 for p in perms:
                     self.cursor.execute("INSERT OR IGNORE INTO chat_rank_permissions VALUES (?, ?, ?)", (chat_id, rank, p))
         self.conn.commit()
@@ -356,7 +371,7 @@ class Database:
         return [{'user_id': r[0], 'chat_rank': r[1], 'username': r[2] or 'Нет', 'first_name': r[3] or 'Нет'} for r in self.cursor.fetchall()]
 
     def has_chat_permission(self, chat_id, rank_level, permission):
-        if rank_level == CHAT_RANK_OWNER:
+        if rank_level >= CHAT_RANK_OWNER:
             return True
         self.cursor.execute("SELECT 1 FROM chat_rank_permissions WHERE chat_id = ? AND rank_level = ? AND permission = ?", (chat_id, rank_level, permission))
         return self.cursor.fetchone() is not None
@@ -665,7 +680,7 @@ def is_super_admin(user_id: int) -> bool:
     return db.is_super_admin(user_id)
 
 def is_chat_owner(chat_id: int, user_id: int) -> bool:
-    return db.get_chat_member_rank(chat_id, user_id) == CHAT_RANK_OWNER
+    return db.get_chat_member_rank(chat_id, user_id) >= CHAT_RANK_OWNER
 
 def has_chat_permission(chat_id: int, user_id: int, permission: str) -> bool:
     return db.has_chat_permission(chat_id, db.get_chat_member_rank(chat_id, user_id), permission)
@@ -1043,8 +1058,8 @@ async def setadm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     try:
         rank = int(context.args[1])
-        if rank < 0 or rank > 5:
-            await update.message.reply_text("❌ Ранг должен быть от 0 до 5")
+        if rank < 0 or rank > 10:
+            await update.message.reply_text("❌ Ранг должен быть от 0 до 10")
             return
     except ValueError:
         await update.message.reply_text("❌ Введите число ранга")
@@ -1152,8 +1167,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.add_chat(chat.id, chat.type, chat.title or "Личный чат")
         db.add_chat_member(chat.id, user.id)
     if chat and chat.type != "private":
+    # Проверяем, есть ли уже владелец
         owners = db.get_chat_members_by_rank(chat.id, CHAT_RANK_OWNER)
-        if not owners:
+    if not owners:
+        # Получаем список администраторов чата через Telegram API
+        try:
+            admins = await context.bot.get_chat_administrators(chat.id)
+            for admin in admins:
+                # Ищем создателя чата
+                if admin.status == 'creator':
+                    db.set_chat_member_rank(chat.id, admin.user.id, CHAT_RANK_OWNER)
+                    break
+        except Exception:
+            # Если не получилось — ставим того, кто написал /start
             db.set_chat_member_rank(chat.id, user.id, CHAT_RANK_OWNER)
     if user.id == FOUNDER_ID:
         db.add_super_admin(user.id)
@@ -2024,7 +2050,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("⛔ Только владелец чата"); return
         text = "⚙️ Настройка прав рангов\n━━━━━━━━━━━━━━━━\n\nВыберите ранг (1-4):"
         keyboard = []
-        for level in range(1, 5):
+        for level in range(1, 10):
             rank_name = db.get_rank_name(chat.id, level)
             keyboard.append([InlineKeyboardButton(f"{rank_name} (Ранг {level})", callback_data=f"edit_chat_perms_{level}")])
         keyboard.append([InlineKeyboardButton("⬅️ Выход", callback_data="chat_admin_panel")])
@@ -2071,12 +2097,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not is_chat_owner(chat.id, user.id):
             await query.edit_message_text("⛔ Только владелец чата"); return
         text = "📝 Названия рангов чата\n━━━━━━━━━━━━━━━━\n\n"
-        text += "Базовые (нельзя изменить):\n"
-        text += f"0. {db.get_rank_name(chat.id, 0)}\n"
-        text += f"5. {db.get_rank_name(chat.id, 5)}\n\n"
-        text += "Настраиваемые (1-4):\n"
+        text += f"10. {db.get_rank_name(chat.id, 10)}\n\n"
+        text += "Настраиваемые (1-9):\n"
         keyboard = []
-        for level in range(1, 5):
+        for level in range(1, 10):
             name = db.get_rank_name(chat.id, level)
             keyboard.append([InlineKeyboardButton(f"Ранг {level}: {name}", callback_data=f"edit_chat_rank_name_{level}")])
         keyboard.append([InlineKeyboardButton("⬅️ Выход", callback_data="chat_admin_panel")])
@@ -2206,21 +2230,75 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton("⬅️ Выход", callback_data="clan_menu")])
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     elif data.startswith("accept_app_"):
-        user_id = int(data.split("_")[-1])
-        clan = db.get_user_clan(user.id)
-        if clan:
-            db.add_clan_member(user_id, clan['clan_id'])
-            db.cursor.execute("UPDATE users SET clan_id = ? WHERE user_id = ?", (clan['clan_id'], user_id))
-            db.cursor.execute("DELETE FROM clan_applications WHERE user_id = ? AND clan_id = ?", (user_id, clan['clan_id']))
+    	target_user_id = int(data.split("_")[-1])
+    clan = db.get_user_clan(user.id)
+    if clan:
+        # Проверяем, не в клане ли уже
+        existing = db.get_clan_member(target_user_id)
+        if existing and existing['clan_id'] == clan['clan_id']:
+            db.cursor.execute("DELETE FROM clan_applications WHERE user_id = ? AND clan_id = ?", (target_user_id, clan['clan_id']))
             db.conn.commit()
-            await query.answer("✅ Заявка принята!", show_alert=True)
+            await query.answer("⚠️ Пользователь уже в клане!", show_alert=True)
+        else:
+            # Проверяем, есть ли у него уже клан
+            target_user = db.get_user(target_user_id)
+            if target_user and target_user['clan_id']:
+                db.cursor.execute("DELETE FROM clan_applications WHERE user_id = ? AND clan_id = ?", (target_user_id, clan['clan_id']))
+                db.conn.commit()
+                await query.answer("⚠️ Пользователь уже в другом клане!", show_alert=True)
+            else:
+                # Принимаем заявку
+                db.cursor.execute("INSERT OR REPLACE INTO clan_members VALUES (?, ?, 'member')", (target_user_id, clan['clan_id']))
+                db.cursor.execute("UPDATE users SET clan_id = ? WHERE user_id = ?", (clan['clan_id'], target_user_id))
+                db.cursor.execute("DELETE FROM clan_applications WHERE user_id = ? AND clan_id = ?", (target_user_id, clan['clan_id']))
+                db.conn.commit()
+                await query.answer("✅ Заявка принята!", show_alert=True)
+    # Обновляем список заявок
+    clan = db.get_user_clan(user.id)
+    if clan:
+        db.cursor.execute("SELECT u.user_id, u.username, u.first_name FROM clan_applications ca LEFT JOIN users u ON ca.user_id = u.user_id WHERE ca.clan_id = ?", (clan['clan_id'],))
+        applications = db.cursor.fetchall()
+        text = "📩 Заявки в клан\n━━━━━━━━━━━━━━━━\n\n"
+        if not applications:
+            text += "Нет заявок"
+        else:
+            for app in applications:
+                text += f"• {app[2]} (@{app[1]})\n  ID: {app[0]}\n\n"
+        keyboard = []
+        for app in applications:
+            keyboard.append([
+                InlineKeyboardButton(f"✅ {app[2]}", callback_data=f"accept_app_{app[0]}"),
+                InlineKeyboardButton(f"❌ {app[2]}", callback_data=f"reject_app_{app[0]}")
+            ])
+        keyboard.append([InlineKeyboardButton("⬅️ Выход", callback_data="clan_menu")])
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
     elif data.startswith("reject_app_"):
-        user_id = int(data.split("_")[-1])
-        clan = db.get_user_clan(user.id)
-        if clan:
-            db.cursor.execute("DELETE FROM clan_applications WHERE user_id = ? AND clan_id = ?", (user_id, clan['clan_id']))
-            db.conn.commit()
-            await query.answer("❌ Заявка отклонена", show_alert=True)
+	    target_user_id = int(data.split("_")[-1])
+	    clan = db.get_user_clan(user.id)
+	    if clan:
+	        db.cursor.execute("DELETE FROM clan_applications WHERE user_id = ? AND clan_id = ?", (target_user_id, clan['clan_id']))
+	        db.conn.commit()
+	        await query.answer("❌ Заявка отклонена", show_alert=True)
+	    # Обновляем список заявок
+	    clan = db.get_user_clan(user.id)
+	    if clan:
+	        db.cursor.execute("SELECT u.user_id, u.username, u.first_name FROM clan_applications ca LEFT JOIN users u ON ca.user_id = u.user_id WHERE ca.clan_id = ?", (clan['clan_id'],))
+	        applications = db.cursor.fetchall()
+	        text = "📩 Заявки в клан\n━━━━━━━━━━━━━━━━\n\n"
+	        if not applications:
+	            text += "Нет заявок"
+	        else:
+	            for app in applications:
+	                text += f"• {app[2]} (@{app[1]})\n  ID: {app[0]}\n\n"
+	        keyboard = []
+	        for app in applications:
+	            keyboard.append([
+	                InlineKeyboardButton(f"✅ {app[2]}", callback_data=f"accept_app_{app[0]}"),
+	                InlineKeyboardButton(f"❌ {app[2]}", callback_data=f"reject_app_{app[0]}")
+	            ])
+	        keyboard.append([InlineKeyboardButton("⬅️ Выход", callback_data="clan_menu")])
+	        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     elif data == "clan_messages":
         clan = db.get_user_clan(user.id)
         if not clan: return
