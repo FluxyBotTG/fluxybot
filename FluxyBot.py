@@ -7,7 +7,7 @@ import sqlite3
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatPermissions
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 
-BOT_TOKEN = "8980577910:AAGJFO588dLcq86neXNAcPUwIW9_xG7UHc8"
+BOT_TOKEN = "8547620515:AAGPC2IJ4qLxSXXDqjyT5foG8sYXlLYud70"
 FOUNDER_ID = 8669060906
 ONLY_OWNER_MODE = False
 
@@ -174,6 +174,7 @@ class Database:
                 chat_id INTEGER,
                 chat_title TEXT,
                 message_link TEXT,
+                answered_by INTEGER,
                 report_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS support_tickets (
@@ -304,7 +305,7 @@ class Database:
             admins.append({'user_id': founder[0], 'username': founder[1] or 'Основатель', 'first_name': founder[2] or 'Основатель'})
         else:
             admins.append({'user_id': FOUNDER_ID, 'username': 'Основатель', 'first_name': 'Основатель'})
-        self.cursor.execute("SELECT u.user_id, u.username, u.first_name FROM users u WHERE u.bot_rank >= 8 AND u.user_id != ?", (FOUNDER_ID,))
+        self.cursor.execute("SELECT u.user_id, u.username, u.first_name FROM users u WHERE u.bot_rank >= 1 AND u.user_id != ?", (FOUNDER_ID,))
         for row in self.cursor.fetchall():
             admins.append({'user_id': row[0], 'username': row[1] or 'Нет', 'first_name': row[2] or 'Нет'})
         return admins
@@ -633,8 +634,11 @@ class Database:
         return [{'user_id': r[0], 'username': r[1] or 'Нет', 'first_name': r[2] or 'Нет'} for r in self.cursor.fetchall()]
 
     def add_bot_admin(self, user_id):
+        self.cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
+        if not self.cursor.fetchone():
+            self.cursor.execute("INSERT INTO users (user_id, username, first_name) VALUES (?, ?, ?)", (user_id, 'Неизвестный', 'Пользователь'))
         self.cursor.execute("INSERT OR IGNORE INTO bot_admins VALUES (?)", (user_id,))
-        self.set_bot_rank(user_id, 8)
+        self.set_bot_rank(user_id, 1)
         self.conn.commit()
 
     def remove_bot_admin(self, user_id):
@@ -685,10 +689,11 @@ def format_clan_info(clan: Dict) -> str:
 async def get_target_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
     if update.message.reply_to_message:
         return update.message.reply_to_message.from_user.id
-    if context.args and context.args[0].isdigit():
-        return int(context.args[0])
-    if context.args and context.args[0].startswith('@'):
-        username = context.args[0].replace('@', '')
+    if context.args:
+        arg = context.args[0]
+        if arg.isdigit():
+            return int(arg)
+        username = arg.replace('@', '')
         user = db.get_user_by_username(username)
         if user:
             return user['user_id']
@@ -700,7 +705,6 @@ async def get_target_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     return member.user.id
             except Exception:
                 pass
-        return None
     return None
 
 async def check_antispam(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
