@@ -1329,6 +1329,31 @@ async def clan_bonus_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     db.give_daily_bonus(clan['clan_id'])
     db.add_clan_rating(clan['clan_id'], members_count)
     await update.message.reply_text(f"✅ Клан получил +{members_count} рейтинга! ({members_count} участников)")
+    
+async def delclan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_blacklisted_check(user.id):
+        await update.message.reply_text("❌ Вы в черном списке бота")
+        return
+    if not is_super_admin(user.id):
+        await update.message.reply_text("⛔ Только супер-админ")
+        return
+    if not context.args:
+        await update.message.reply_text("/delclan [ID клана]")
+        return
+    try:
+        clan_id = int(context.args[0])
+        clan = db.get_clan(clan_id)
+        if not clan:
+            await update.message.reply_text("❌ Клан не найден")
+            return
+        db.cursor.execute("DELETE FROM clans WHERE clan_id = ?", (clan_id,))
+        db.cursor.execute("DELETE FROM clan_members WHERE clan_id = ?", (clan_id,))
+        db.cursor.execute("UPDATE users SET clan_id = NULL WHERE clan_id = ?", (clan_id,))
+        db.conn.commit()
+        await update.message.reply_text(f"✅ Клан {clan['name']} удалён!")
+    except ValueError:
+        await update.message.reply_text("❌ Введите числовой ID")
 
 async def setrank_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -2762,6 +2787,7 @@ def main():
     application.add_handler(CommandHandler("profile", profile_command))
     application.add_handler(CommandHandler("clan", clan_command))
     application.add_handler(CommandHandler("clan_bonus", clan_bonus_command))
+    application.add_handler(CommandHandler("delclan", delclan_command))
     application.add_handler(CommandHandler("kick", kick_command))
     application.add_handler(CommandHandler("warn", warn_command))
     application.add_handler(CommandHandler("ban", ban_command))
