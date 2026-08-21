@@ -1039,9 +1039,6 @@ async def setadm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not (is_chat_owner(chat.id, user.id) or is_super_admin(user.id)):
         await update.message.reply_text("⛔ Только владелец чата или супер-админ может выдавать ранги")
         return
-    if len(context.args) < 1:
-        await update.message.reply_text("Использование: /setadm [ранг 0-10] (ответом на сообщение)\nИли: /setadm [ID/@username] [ранг 0-10]")
-        return
     target_id = await get_target_user_id(update, context)
     if not target_id:
         await update.message.reply_text("❌ Пользователь не найден")
@@ -1329,7 +1326,7 @@ async def clan_bonus_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     db.give_daily_bonus(clan['clan_id'])
     db.add_clan_rating(clan['clan_id'], members_count)
     await update.message.reply_text(f"✅ Клан получил +{members_count} рейтинга! ({members_count} участников)")
-    
+
 async def delclan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -2174,7 +2171,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for member in members:
             role_text = "Лидер" if member['role'] == 'leader' else "Участник"
             text += f"• {member['first_name']} (@{member['username']}) - {role_text}\n  ID: {member['user_id']}\n\n"
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Выход", callback_data="clan_menu")]]))
+        keyboard = [
+            [InlineKeyboardButton("📨 Пригласить участника", callback_data="invite_to_clan")],
+            [InlineKeyboardButton("⬅️ Выход", callback_data="clan_menu")]
+        ]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    elif data == "invite_to_clan":
+        clan = db.get_user_clan(user.id)
+        if not clan: return
+        context.user_data['inviting_to_clan'] = True
+        await query.edit_message_text(
+            "📨 Напишите ID или @username пользователя для приглашения:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Отмена", callback_data="clan_menu")]])
+        )
     elif data == "clan_join_settings":
         clan = db.get_user_clan(user.id)
         if not clan: return
@@ -2523,6 +2532,47 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ Приветствие настроено!\n\nТекст:\n<code>{welcome_text}</code>", parse_mode='HTML')
         return
 
+    if context.user_data.get('inviting_to_clan'):
+        context.user_data['inviting_to_clan'] = False
+        clan = db.get_user_clan(user.id)
+        if not clan:
+            await update.message.reply_text("❌ Вы не состоите в клане")
+            return
+        target_id = None
+        if text.isdigit():
+            target_id = int(text)
+        elif text.startswith('@'):
+            username = text.replace('@', '')
+            target_user = db.get_user_by_username(username)
+            if target_user:
+                target_id = target_user['user_id']
+            else:
+                try:
+                    member = await context.bot.get_chat_member(update.effective_chat.id, username)
+                    if member:
+                        target_id = member.user.id
+                except:
+                    pass
+        if not target_id:
+            await update.message.reply_text("❌ Пользователь не найден")
+            return
+        existing = db.get_clan_member(target_id)
+        if existing and existing['clan_id'] == clan['clan_id']:
+            await update.message.reply_text("⚠️ Пользователь уже в клане!")
+            return
+        target_user_data = db.get_user(target_id)
+        if target_user_data and target_user_data['clan_id']:
+            await update.message.reply_text("⚠️ Пользователь уже в другом клане!")
+            return
+        db.cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (target_id,))
+        if not db.cursor.fetchone():
+            db.cursor.execute("INSERT INTO users (user_id, username, first_name) VALUES (?, ?, ?)", (target_id, 'Неизвестный', 'Пользователь'))
+        db.cursor.execute("INSERT OR REPLACE INTO clan_members VALUES (?, ?, 'member')", (target_id, clan['clan_id']))
+        db.cursor.execute("UPDATE users SET clan_id = ? WHERE user_id = ?", (clan['clan_id'], target_id))
+        db.conn.commit()
+        await update.message.reply_text(f"✅ Пользователь {target_id} приглашён в клан!")
+        return
+
     if context.user_data.get('finding_clan'):
         context.user_data['finding_clan'] = False
         try:
@@ -2530,7 +2580,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             clan = db.get_clan(clan_id)
             if clan:
                 if clan['join_enabled'] == 1:
-                    db.add_chat_member(clan_id, user.id)
+                    db.cursor.execute("INSERT OR REPLACE INTO clan_members VALUES (?, ?, 'member')", (user.id, clan_id))
                     db.cursor.execute("UPDATE users SET clan_id = ? WHERE user_id = ?", (clan_id, user.id))
                     db.conn.commit()
                     await update.message.reply_text(f"✅ Вы вступили в клан {clan['name']}!")
