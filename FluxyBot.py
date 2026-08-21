@@ -2162,7 +2162,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("🔍 Напишите ID клана:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Отмена", callback_data="clan_menu")]]))
     elif data == "create_clan":
         context.user_data['creating_clan'] = True
-        await query.edit_message_text("Введите название клана:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Отмена", callback_data="clan_menu")]]))
+        await query.edit_message_text(
+            "Введите название клана:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Отмена", callback_data="cancel_create_clan")]])
+    )
+
+    elif data == "cancel_create_clan":
+        context.user_data['creating_clan'] = False
+        await query.edit_message_text("❌ Создание клана отменено", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="clan_menu")]]))
     elif data == "clan_members":
         clan = db.get_user_clan(user.id)
         if not clan: return
@@ -2630,7 +2637,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if context.user_data.get('creating_clan'):
-    context.user_data['creating_clan'] = False
+        context.user_data['creating_clan'] = False
     try:
         db.cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user.id,))
         if not db.cursor.fetchone():
@@ -2640,6 +2647,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ Клан '{text}' создан! ID: {clan_id}")
     except sqlite3.IntegrityError:
         await update.message.reply_text("❌ Клан с таким названием уже существует")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
     return
 
     if context.user_data.get('sending_clan_message'):
