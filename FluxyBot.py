@@ -2630,7 +2630,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if context.user_data.get('creating_clan'):
-        context.user_data['creating_clan'] = False
+    context.user_data['creating_clan'] = False
     try:
         db.cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user.id,))
         if not db.cursor.fetchone():
