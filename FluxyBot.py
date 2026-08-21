@@ -1163,6 +1163,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard.append([InlineKeyboardButton("👤 Профиль", callback_data="profile"), InlineKeyboardButton("🛡 Клан", callback_data="clan_menu")])
     keyboard.append([InlineKeyboardButton("❓ Помощь", callback_data="help"), InlineKeyboardButton("📋 Команды", callback_data="commands")])
     keyboard.append([InlineKeyboardButton("🔰 Агенты поддержки", callback_data="agents_list")])
+    keyboard.append([InlineKeyboardButton("➕ Добавить в чат", url="https://t.me/fluxy_cm_bot?startgroup=true")])
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1655,6 +1656,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton("👤 Профиль", callback_data="profile"), InlineKeyboardButton("🛡 Клан", callback_data="clan_menu")])
         keyboard.append([InlineKeyboardButton("❓ Помощь", callback_data="help"), InlineKeyboardButton("📋 Команды", callback_data="commands")])
         keyboard.append([InlineKeyboardButton("🔰 Агенты поддержки", callback_data="agents_list")])
+        keyboard.append([InlineKeyboardButton("➕ Добавить в чат", url="https://t.me/fluxy_cm_bot?startgroup=true")])
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif data == "admin_panel":
