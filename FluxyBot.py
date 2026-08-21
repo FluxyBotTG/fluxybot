@@ -2121,7 +2121,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-        elif data == "clan_menu":
+    elif data == "clan_menu":
         context.user_data['creating_clan'] = False
         clan = db.get_user_clan(user.id)
         if not clan:
