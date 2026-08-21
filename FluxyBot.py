@@ -2121,7 +2121,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-    elif data == "clan_menu":
+        elif data == "clan_menu":
+        context.user_data['creating_clan'] = False
         clan = db.get_user_clan(user.id)
         if not clan:
             text = "Вы не состоите в клане\n\nХотите создать или найти клан?"
@@ -2165,8 +2166,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "Введите название клана:",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Отмена", callback_data="cancel_create_clan")]])
-    )
-
+        )
     elif data == "cancel_create_clan":
         context.user_data['creating_clan'] = False
         await query.edit_message_text("❌ Создание клана отменено", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="clan_menu")]]))
@@ -2637,19 +2637,19 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if context.user_data.get('creating_clan'):
-        context.user_data['creating_clan'] = False
-        try:
-            db.cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user.id,))
-            if not db.cursor.fetchone():
-                db.cursor.execute("INSERT INTO users (user_id, username, first_name) VALUES (?, ?, ?)", (user.id, user.username, user.first_name))
-                db.conn.commit()
-            clan_id = db.create_clan(text, user.id)
-            await update.message.reply_text(f"✅ Клан '{text}' создан! ID: {clan_id}")
-        except sqlite3.IntegrityError:
-            await update.message.reply_text("❌ Клан с таким названием уже существует")
-        except Exception as e:
-            await update.message.reply_text(f"❌ Ошибка: {e}")
-        return
+    context.user_data['creating_clan'] = False
+    try:
+        db.cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user.id,))
+        if not db.cursor.fetchone():
+            db.cursor.execute("INSERT INTO users (user_id, username, first_name) VALUES (?, ?, ?)", (user.id, user.username, user.first_name))
+            db.conn.commit()
+        clan_id = db.create_clan(text, user.id)
+        await update.message.reply_text(f"✅ Клан '{text}' создан! ID: {clan_id}")
+    except sqlite3.IntegrityError:
+        await update.message.reply_text("❌ Клан с таким названием уже существует")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+    return
 
     if context.user_data.get('sending_clan_message'):
         context.user_data['sending_clan_message'] = False
