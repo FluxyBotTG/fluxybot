@@ -1167,19 +1167,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.add_chat(chat.id, chat.type, chat.title or "Личный чат")
         db.add_chat_member(chat.id, user.id)
     if chat and chat.type != "private":
-    # Проверяем, есть ли уже владелец
-        owners = db.get_chat_members_by_rank(chat.id, CHAT_RANK_OWNER)
-    if not owners:
-        # Получаем список администраторов чата через Telegram API
         try:
-            admins = await context.bot.get_chat_administrators(chat.id)
-            for admin in admins:
-                # Ищем создателя чата
-                if admin.status == 'creator':
-                    db.set_chat_member_rank(chat.id, admin.user.id, CHAT_RANK_OWNER)
-                    break
-        except Exception:
-            # Если не получилось — ставим того, кто написал /start
+            owners = db.get_chat_members_by_rank(chat.id, CHAT_RANK_OWNER)
+            if not owners:
+                db.set_chat_member_rank(chat.id, user.id, CHAT_RANK_OWNER)
+        except:
             db.set_chat_member_rank(chat.id, user.id, CHAT_RANK_OWNER)
     if user.id == FOUNDER_ID:
         db.add_super_admin(user.id)
