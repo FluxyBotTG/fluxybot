@@ -220,7 +220,17 @@ class Database:
             self.cursor.execute("INSERT OR IGNORE INTO bot_rank_names VALUES (?, ?)", (lvl, name))
         for lvl, name in {0:"Не агент",1:"Агент поддержки",2:"Главный агент поддержки",3:"ГС агентов поддержки"}.items():
             self.cursor.execute("INSERT OR IGNORE INTO agent_level_names VALUES (?, ?)", (lvl, name))
-        for rank, perms in {1:["btn_commands"],2:["btn_commands","btn_admins_list"],3:["btn_commands","btn_admins_list","btn_agents_list"],4:["btn_commands","btn_admins_list","btn_agents_list","btn_blacklist"],5:["btn_commands","btn_admins_list","btn_agents_list","btn_blacklist","btn_give_rep"],6:["btn_commands","btn_admins_list","btn_agents_list","btn_blacklist","btn_give_rep","btn_chats"],7:["btn_commands","btn_admins_list","btn_agents_list","btn_blacklist","btn_give_rep","btn_chats","btn_ranks"],8:["btn_admin_panel","btn_admins_list","btn_agents_list","btn_blacklist","btn_give_rep","btn_commands","btn_chats","btn_ranks","btn_rank_names","btn_rank_perms"],9:["btn_admin_panel","btn_admins_list","btn_agents_list","btn_blacklist","btn_give_rep","btn_commands","btn_chats","btn_ranks","btn_rank_names","btn_rank_perms","btn_super_admins","btn_agent_levels","btn_agent_names","btn_agent_perms"]}.items():
+        for rank, perms in {
+    1:["btn_commands","btn_broadcast","btn_stats"],
+    2:["btn_commands","btn_broadcast","btn_stats","btn_admins_list"],
+    3:["btn_commands","btn_broadcast","btn_stats","btn_admins_list","btn_agents_list"],
+    4:["btn_commands","btn_broadcast","btn_stats","btn_admins_list","btn_agents_list","btn_blacklist"],
+    5:["btn_commands","btn_broadcast","btn_stats","btn_admins_list","btn_agents_list","btn_blacklist","btn_give_rep"],
+    6:["btn_commands","btn_broadcast","btn_stats","btn_admins_list","btn_agents_list","btn_blacklist","btn_give_rep","btn_chats"],
+    7:["btn_commands","btn_broadcast","btn_stats","btn_admins_list","btn_agents_list","btn_blacklist","btn_give_rep","btn_chats","btn_ranks"],
+    8:["btn_admin_panel","btn_admins_list","btn_agents_list","btn_blacklist","btn_give_rep","btn_commands","btn_broadcast","btn_stats","btn_chats","btn_ranks","btn_rank_names","btn_rank_perms"],
+    9:["btn_admin_panel","btn_admins_list","btn_agents_list","btn_blacklist","btn_give_rep","btn_commands","btn_broadcast","btn_stats","btn_chats","btn_ranks","btn_rank_names","btn_rank_perms","btn_super_admins","btn_agent_levels","btn_agent_names","btn_agent_perms"]
+}.items():
             for p in perms:
                 self.cursor.execute("INSERT OR IGNORE INTO bot_rank_permissions VALUES (?, ?)", (rank, p))
         for level, perms in {1:["btn_answer_tickets"],2:["btn_answer_tickets","btn_close_tickets"],3:["btn_answer_tickets","btn_close_tickets","btn_manage_agents","btn_view_reports"]}.items():
@@ -1541,6 +1551,8 @@ BOT_BUTTON_PERMISSIONS = {
     "btn_give_rep": "⭐️ Выдать репутацию",
     "btn_commands": "📋 Все команды",
     "btn_chats": "🗂 Все чаты",
+    "btn_broadcast": "📣 Рассылка",
+    "btn_stats": "📊 Статистика бота",
     "btn_ranks": "📊 Ранги бота",
     "btn_rank_names": "📝 Названия рангов",
     "btn_rank_perms": "⚙️ Права рангов",
@@ -1696,10 +1708,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         row = []
         if has_bot_permission(user.id, "btn_chats"):
             row.append(InlineKeyboardButton("🗂 Все чаты", callback_data="all_chats"))
-        if has_bot_permission(user.id, "btn_commands"):
+        if has_bot_permission(user.id, "btn_broadcast"):
             row.append(InlineKeyboardButton("📣 Рассылка", callback_data="broadcast"))
-        if has_bot_permission(user.id, "btn_commands"):
-            row.append(InlineKeyboardButton("📊 Статистика", callback_data="bot_stats"))
+        if has_bot_permission(user.id, "btn_stats"):
+           row.append(InlineKeyboardButton("📊 Статистика", callback_data="bot_stats"))
         row.append(InlineKeyboardButton("⬅️ Выход", callback_data="start_menu"))
         keyboard.append(row)
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
