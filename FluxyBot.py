@@ -481,6 +481,9 @@ class Database:
         return result[0] if result else 0
 
     def create_clan(self, name, leader_id):
+        self.cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (leader_id,))
+        if not self.cursor.fetchone():
+            self.cursor.execute("INSERT INTO users (user_id, username, first_name) VALUES (?, ?, ?)", (leader_id, 'Неизвестный', 'Пользователь'))
         self.cursor.execute("INSERT INTO clans (name, leader_id) VALUES (?, ?)", (name, leader_id))
         clan_id = self.cursor.lastrowid
         self.cursor.execute("INSERT INTO clan_members VALUES (?, ?, 'leader')", (leader_id, clan_id))
@@ -2515,34 +2518,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if await check_antispam(update, context):
         return
-        
-        # Сбрасываем все флаги если не в режиме ожидания
-if not any([
-    context.user_data.get('creating_clan'),
-    context.user_data.get('finding_clan'),
-    context.user_data.get('inviting_to_clan'),
-    context.user_data.get('changing_antispam_limit'),
-    context.user_data.get('changing_welcome_text'),
-    context.user_data.get('replying_report'),
-    context.user_data.get('awarding_user'),
-    context.user_data.get('answering_ticket'),
-    context.user_data.get('editing_chat_rank'),
-    context.user_data.get('editing_bot_rank'),
-    context.user_data.get('editing_agent_level'),
-    context.user_data.get('adding_admin'),
-    context.user_data.get('removing_admin'),
-    context.user_data.get('changing_admin_rank'),
-    context.user_data.get('adding_super_admin'),
-    context.user_data.get('removing_super_admin'),
-    context.user_data.get('adding_agent'),
-    context.user_data.get('removing_agent'),
-    context.user_data.get('changing_agent_level'),
-    context.user_data.get('question_state'),
-    context.user_data.get('war_state'),
-    context.user_data.get('sending_clan_message'),
-    context.user_data.get('sending_pm'),
-]):
-    return
 
     if context.user_data.get('changing_antispam_limit'):
         context.user_data['changing_antispam_limit'] = False
