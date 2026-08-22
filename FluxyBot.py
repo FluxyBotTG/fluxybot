@@ -1084,8 +1084,8 @@ async def giverep_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         await update.message.reply_text("❌ Введите числа")
         
-        async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-            query = update.callback_query
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
     await query.answer()
     user = query.from_user
     chat = query.message.chat if query.message else None
