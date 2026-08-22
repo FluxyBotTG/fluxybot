@@ -220,8 +220,7 @@ class Database:
             self.cursor.execute("INSERT OR IGNORE INTO bot_rank_names VALUES (?, ?)", (lvl, name))
         for lvl, name in {0:"Не агент",1:"Агент поддержки",2:"Главный агент поддержки",3:"ГС агентов поддержки"}.items():
             self.cursor.execute("INSERT OR IGNORE INTO agent_level_names VALUES (?, ?)", (lvl, name))
-        for rank, perms in {8:["btn_admin_panel","btn_admins_list","btn_agents_list","btn_blacklist","btn_give_rep","btn_commands","btn_chats"],
-                            9:["btn_admin_panel","btn_admins_list","btn_agents_list","btn_blacklist","btn_give_rep","btn_commands","btn_chats","btn_ranks","btn_rank_names","btn_rank_perms","btn_super_admins","btn_agent_levels","btn_agent_names","btn_agent_perms"]}.items():
+        for rank, perms in {1:["btn_commands"],2:["btn_commands","btn_admins_list"],3:["btn_commands","btn_admins_list","btn_agents_list"],4:["btn_commands","btn_admins_list","btn_agents_list","btn_blacklist"],5:["btn_commands","btn_admins_list","btn_agents_list","btn_blacklist","btn_give_rep"],6:["btn_commands","btn_admins_list","btn_agents_list","btn_blacklist","btn_give_rep","btn_chats"],7:["btn_commands","btn_admins_list","btn_agents_list","btn_blacklist","btn_give_rep","btn_chats","btn_ranks"],8:["btn_admin_panel","btn_admins_list","btn_agents_list","btn_blacklist","btn_give_rep","btn_commands","btn_chats","btn_ranks","btn_rank_names","btn_rank_perms"],9:["btn_admin_panel","btn_admins_list","btn_agents_list","btn_blacklist","btn_give_rep","btn_commands","btn_chats","btn_ranks","btn_rank_names","btn_rank_perms","btn_super_admins","btn_agent_levels","btn_agent_names","btn_agent_perms"]}.items():
             for p in perms:
                 self.cursor.execute("INSERT OR IGNORE INTO bot_rank_permissions VALUES (?, ?)", (rank, p))
         for level, perms in {1:["btn_answer_tickets"],2:["btn_answer_tickets","btn_close_tickets"],3:["btn_answer_tickets","btn_close_tickets","btn_manage_agents","btn_view_reports"]}.items():
@@ -654,6 +653,14 @@ class Database:
         self.set_bot_rank(user_id, 0)
         self.conn.commit()
 
+    def get_bot_stats(self):
+        users_count = self.cursor.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        chats_count = self.cursor.execute("SELECT COUNT(*) FROM chats").fetchone()[0]
+        clans_count = self.cursor.execute("SELECT COUNT(*) FROM clans").fetchone()[0]
+        today = datetime.now().strftime('%Y-%m-%d')
+        active_today = self.cursor.execute("SELECT COUNT(*) FROM users WHERE last_activity LIKE ?", (f"{today}%",)).fetchone()[0]
+        return {'users': users_count, 'chats': chats_count, 'clans': clans_count, 'active_today': active_today}
+
 db = Database()
 
 # ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
@@ -764,6 +771,7 @@ async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    chat = update.effective_chat
     if is_blacklisted_check(user.id):
         await update.message.reply_text("❌ Вы в черном списке бота")
         return
@@ -774,7 +782,6 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target_user_data = db.get_user(target_id)
     if not target_user_data:
         try:
-            chat = update.effective_chat
             member = await context.bot.get_chat_member(chat.id, target_id)
             db.add_user(member.user.id, member.user.username, member.user.first_name)
             target_user_data = db.get_user(target_id)
@@ -798,6 +805,26 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🏆 Рейтинг клана: {clan_rating}
 
 ━━━━━━━━━━━━━━━━"""
+    # Наказания (видно только админам чата)
+    if chat and chat.type != "private" and has_chat_permission(chat.id, user.id, "btn_warn"):
+        text += "\n\n⚠️ Наказания:\n"
+        warnings = db.cursor.execute("SELECT reason, warn_date FROM warnings WHERE chat_id = ? AND user_id = ? ORDER BY warn_date DESC", (chat.id, target_id)).fetchall()
+        bans = db.cursor.execute("SELECT reason, ban_date FROM bans WHERE chat_id = ? AND user_id = ?", (chat.id, target_id)).fetchall()
+        mutes = db.cursor.execute("SELECT reason, mute_date, unmute_date FROM mutes WHERE chat_id = ? AND user_id = ?", (chat.id, target_id)).fetchall()
+        if warnings:
+            text += "Предупреждения:\n"
+            for w in warnings:
+                text += f"  • {w[0]} ({w[1]})\n"
+        if bans:
+            text += "Баны:\n"
+            for b in bans:
+                text += f"  • {b[0]} ({b[1]})\n"
+        if mutes:
+            text += "Муты:\n"
+            for m in mutes:
+                text += f"  • {m[0]} ({m[1]} - {m[2]})\n"
+        if not warnings and not bans and not mutes:
+            text += "Нет наказаний\n"
     keyboard = [
         [InlineKeyboardButton("🏅 Выдать награду", callback_data=f"give_award_{target_id}")],
         [InlineKeyboardButton("🏆 Награды", callback_data=f"show_awards_{target_id}")],
@@ -1126,6 +1153,28 @@ async def hstats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = f"📊 Ваша статистика ответов на вопросы\n━━━━━━━━━━━━━━━━\n\n✅ Отвечено вопросов: {count}"
     await update.message.reply_text(text)
 
+async def message_bot_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_blacklisted_check(user.id):
+        await update.message.reply_text("❌ Вы в черном списке бота")
+        return
+    if not has_bot_permission(user.id, "btn_commands"):
+        await update.message.reply_text("⛔ У вас нет прав")
+        return
+    if not context.args:
+        await update.message.reply_text("/message_bot [текст]")
+        return
+    text = ' '.join(context.args)
+    users = db.cursor.execute("SELECT user_id FROM users").fetchall()
+    sent = 0
+    for u in users:
+        try:
+            await context.bot.send_message(u[0], f"📣 Рассылка:\n\n{text}")
+            sent += 1
+        except:
+            pass
+    await update.message.reply_text(f"✅ Рассылка отправлена! Доставлено: {sent} пользователям")
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_blacklisted_check(user.id):
@@ -1138,24 +1187,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.add_chat_member(chat.id, user.id)
     if chat and chat.type != "private":
         try:
-            # Получаем администраторов через Telegram API
             admins = await context.bot.get_chat_administrators(chat.id)
             creator = None
             for admin in admins:
                 if admin.status == 'creator':
                     creator = admin.user
                     break
-            
             if creator:
-                # Даём ранг владельца создателю чата
                 db.set_chat_member_rank(chat.id, creator.id, CHAT_RANK_OWNER)
             else:
-                # Если не нашли — даём тому, кто написал /start
                 owners = db.get_chat_members_by_rank(chat.id, CHAT_RANK_OWNER)
                 if not owners:
                     db.set_chat_member_rank(chat.id, user.id, CHAT_RANK_OWNER)
         except:
-            # Если API недоступен — даём тому, кто написал /start
             owners = db.get_chat_members_by_rank(chat.id, CHAT_RANK_OWNER)
             if not owners:
                 db.set_chat_member_rank(chat.id, user.id, CHAT_RANK_OWNER)
@@ -1220,6 +1264,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += "\n/astats - Статистика жалоб\n"
     if has_hstats_permission(user.id):
         text += "\n/hstats - Статистика вопросов\n"
+    if has_bot_permission(user.id, "btn_commands"):
+        text += "\n/message_bot - Рассылка\n"
     text += "\nВыберите тип обращения:"
     keyboard = [
         [InlineKeyboardButton("❗️ Жалоба", callback_data="help_report")],
@@ -1650,9 +1696,34 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         row = []
         if has_bot_permission(user.id, "btn_chats"):
             row.append(InlineKeyboardButton("🗂 Все чаты", callback_data="all_chats"))
+        if has_bot_permission(user.id, "btn_commands"):
+            row.append(InlineKeyboardButton("📣 Рассылка", callback_data="broadcast"))
+        if has_bot_permission(user.id, "btn_commands"):
+            row.append(InlineKeyboardButton("📊 Статистика", callback_data="bot_stats"))
         row.append(InlineKeyboardButton("⬅️ Выход", callback_data="start_menu"))
         keyboard.append(row)
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif data == "broadcast":
+        if not has_bot_permission(user.id, "btn_commands"): return
+        context.user_data['broadcasting'] = True
+        await query.edit_message_text(
+            "📣 Отправьте текст для рассылки:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Отмена", callback_data="admin_panel")]])
+        )
+    elif data == "bot_stats":
+        if not has_bot_permission(user.id, "btn_commands"): return
+        stats = db.get_bot_stats()
+        text = f"""📊 Статистика бота
+━━━━━━━━━━━━━━━━
+
+👥 Пользователей: {stats['users']}
+💬 Чатов: {stats['chats']}
+🛡 Кланов: {stats['clans']}
+⚡ Активность за день: {stats['active_today']}
+
+━━━━━━━━━━━━━━━━"""
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Выход", callback_data="admin_panel")]]))
 
     elif data == "bot_admins_list":
         if not has_bot_permission(user.id, "btn_admins_list"): return
@@ -1880,7 +1951,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "all_commands":
         if not has_bot_permission(user.id, "btn_commands"): return
         text = "📋 Все команды бота\n━━━━━━━━━━━━━━━━\n\n"
-        text += "/profile - Профиль\n/clan - Клан\n/clan_top - Топ кланов\n/help - Помощь\n/report - Жалоба\n/ping - Пинг\n/stats - Профиль игрока\n/id - Узнать ID\n/clan_bonus - Ежедневный бонус клана\n"
+        text += "/profile - Профиль\n/clan - Клан\n/clan_top - Топ кланов\n/help - Помощь\n/report - Жалоба\n/ping - Пинг\n/stats - Профиль игрока\n/id - Узнать ID\n/clan_bonus - Ежедневный бонус клана\n/message_bot - Рассылка\n"
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Выход", callback_data="admin_panel")]]))
     elif data == "all_chats":
         if not has_bot_permission(user.id, "btn_chats"): return
@@ -2439,6 +2510,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text += "\n/astats - Статистика жалоб\n"
         if has_hstats_permission(user.id):
             text += "\n/hstats - Статистика вопросов\n"
+        if has_bot_permission(user.id, "btn_commands"):
+            text += "\n/message_bot - Рассылка\n"
         text += "\nВыберите тип обращения:"
         keyboard = [
             [InlineKeyboardButton("❗️ Жалоба", callback_data="help_report")],
@@ -2484,6 +2557,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += "/stats - Профиль игрока\n"
         text += "/id - Узнать ID\n"
         text += "/clan_bonus - Ежедневный бонус клана\n"
+        if has_bot_permission(user.id, "btn_commands"):
+            text += "/message_bot - Рассылка\n"
         if chat and chat.type != "private":
             mod_commands = ""
             if has_chat_permission(chat.id, user.id, "btn_kick"):
@@ -2533,6 +2608,19 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if await check_antispam(update, context):
+        return
+
+    if context.user_data.get('broadcasting'):
+        context.user_data['broadcasting'] = False
+        users = db.cursor.execute("SELECT user_id FROM users").fetchall()
+        sent = 0
+        for u in users:
+            try:
+                await context.bot.send_message(u[0], f"📣 Рассылка:\n\n{text}")
+                sent += 1
+            except:
+                pass
+        await update.message.reply_text(f"✅ Рассылка отправлена! Доставлено: {sent} пользователям")
         return
 
     if context.user_data.get('changing_antispam_limit'):
@@ -2870,6 +2958,7 @@ def main():
     application.add_handler(CommandHandler("clan", clan_command))
     application.add_handler(CommandHandler("clan_bonus", clan_bonus_command))
     application.add_handler(CommandHandler("delclan", delclan_command))
+    application.add_handler(CommandHandler("message_bot", message_bot_command))
     application.add_handler(CommandHandler("kick", kick_command))
     application.add_handler(CommandHandler("warn", warn_command))
     application.add_handler(CommandHandler("ban", ban_command))
