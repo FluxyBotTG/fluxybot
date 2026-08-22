@@ -1138,11 +1138,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.add_chat_member(chat.id, user.id)
     if chat and chat.type != "private":
         try:
+            # Получаем администраторов через Telegram API
+            admins = await context.bot.get_chat_administrators(chat.id)
+            creator = None
+            for admin in admins:
+                if admin.status == 'creator':
+                    creator = admin.user
+                    break
+            
+            if creator:
+                # Даём ранг владельца создателю чата
+                db.set_chat_member_rank(chat.id, creator.id, CHAT_RANK_OWNER)
+            else:
+                # Если не нашли — даём тому, кто написал /start
+                owners = db.get_chat_members_by_rank(chat.id, CHAT_RANK_OWNER)
+                if not owners:
+                    db.set_chat_member_rank(chat.id, user.id, CHAT_RANK_OWNER)
+        except:
+            # Если API недоступен — даём тому, кто написал /start
             owners = db.get_chat_members_by_rank(chat.id, CHAT_RANK_OWNER)
             if not owners:
                 db.set_chat_member_rank(chat.id, user.id, CHAT_RANK_OWNER)
-        except:
-            db.set_chat_member_rank(chat.id, user.id, CHAT_RANK_OWNER)
     if user.id == FOUNDER_ID:
         db.add_super_admin(user.id)
     text = f"""👋 Добро пожаловать в Fluxy | Чат-менеджер.
