@@ -91,6 +91,8 @@ class Database:
         print("✅ Доступы инициализированы")
 
     def add_user(self, user_id, username, first_name):
+        username = username or ""
+        first_name = first_name or "Пользователь"
         self.cursor.execute("INSERT OR IGNORE INTO users (user_id, username, first_name, registration_date, last_activity) VALUES (?, ?, ?, ?, ?)", (user_id, username, first_name, datetime.now().isoformat(), datetime.now().isoformat()))
         self.conn.commit()
 
@@ -627,10 +629,9 @@ class Handlers:
             await update.message.reply_text("❌ Вы в черном списке бота!")
             return
         
-        # Обновляем права владельца если это группа
         if update.effective_chat.type != 'private':
             chat_id = update.effective_chat.id
-            db.add_chat(chat_id, update.effective_chat.title)
+            db.add_chat(chat_id, update.effective_chat.title or "Чат")
             try:
                 admins = await context.bot.get_chat_administrators(chat_id)
                 for admin in admins:
@@ -666,7 +667,7 @@ class Handlers:
             for member in update.message.new_chat_members:
                 if member.id == context.bot.id:
                     chat_id = update.effective_chat.id
-                    chat_title = update.effective_chat.title
+                    chat_title = update.effective_chat.title or "Чат"
                     db.add_chat(chat_id, chat_title)
                     try:
                         admins = await context.bot.get_chat_administrators(chat_id)
@@ -1452,7 +1453,7 @@ class Handlers:
                 await query.answer("❌ Только в группе!")
                 return
             chat_id = update.effective_chat.id
-            db.add_chat(chat_id, update.effective_chat.title)
+            db.add_chat(chat_id, update.effective_chat.title or "Чат")
             try:
                 admins = await context.bot.get_chat_administrators(chat_id)
                 is_owner = False
