@@ -1571,6 +1571,26 @@ class Handlers:
                 )
             except:
                 pass
+                
+                @staticmethod
+                async def backup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+                	user = update.effective_user
+                	if db.get_bot_admin_level(user.id) < 10:
+                		await update.message.reply_text("❌ Только Основатель!")
+                		return
+                		
+        await update.message.reply_text("📦 Выполняю резервное копирование...")
+    
+        if backup_manager.backup(db):
+            await update.message.reply_text(
+            "✅ Резервное копирование успешно выполнено!\n"
+            "📊 Данные сохранены в JSONBin"
+        )
+        else:
+            await update.message.reply_text(
+            "❌ Ошибка резервного копирования!\n"
+            "Проверьте интернет-соединение."
+        )
 
     @staticmethod
     async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2705,12 +2725,6 @@ def main():
     print("🤖 Запуск Fluxy бота...")
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # Автоматическое резервное копирование каждые 30 минут
-    async def auto_backup(context):
-        backup_manager.backup(db)
-    
-    application.job_queue.run_repeating(auto_backup, interval=1800, first=10)
-
     # Регистрация всех команд
     application.add_handler(CommandHandler("start", Handlers.start))
     application.add_handler(CommandHandler("help", Handlers.help_command))
@@ -2747,6 +2761,7 @@ def main():
     application.add_handler(CommandHandler("accept_request", Handlers.accept_request))
     application.add_handler(CommandHandler("reject_request", Handlers.reject_request))
     application.add_handler(CommandHandler("ask", Handlers.ask))
+    application.add_handler(CommandHandler("backup", Handlers.backup_command))
 
     # Обработчики сообщений
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, Handlers.on_bot_added), group=2)
@@ -2797,7 +2812,7 @@ def main():
 
     print("✅ Бот запущен!")
     print(f"👑 Основатель: {SUPER_ADMIN_ID}")
-    print("📦 Резервное копирование в JSONBin активировано")
+    print("📦 Резервное копирование: команда /backup")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
