@@ -1,5 +1,9 @@
+# ЧАСТЬ 1: Импорты, конфигурация, BackupManager, Database (начало)
 import sqlite3
 import asyncio
+import random
+import requests
+import json
 from datetime import datetime, timedelta
 from typing import Optional, List, Tuple
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -7,9 +11,18 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 import logging
 import os
 
-BOT_TOKEN = "8980577910:AAGJFO588dLcq86neXNAcPUwIW9_xG7UHc8"
+BOT_TOKEN = "8547620515:AAGPC2IJ4qLxSXXDqjyT5foG8sYXlLYud70"
 SUPER_ADMIN_ID = 8669060906
 BOT_USERNAME = "fluxy_cm_bot"
+
+# JSONBin настройки
+JSONBIN_API_KEY = "$2a$10$oQFi.r.b4KoxCupZTsKdzeH6ZktFfBr12SBHnTXgkmRwGBJr1bRdm"
+JSONBIN_BIN_ID = "6a8ac58bda38895dfe06783c"
+JSONBIN_URL = f"https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}"
+JSONBIN_HEADERS = {
+    "X-Master-Key": JSONBIN_API_KEY,
+    "Content-Type": "application/json"
+}
 
 WAITING_FOR_ADMIN_ID = 1
 WAITING_FOR_ADMIN_LEVEL = 2
@@ -29,6 +42,87 @@ WAITING_FOR_CLAN_ID = 31
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+class BackupManager:
+    def __init__(self):
+        self.url = JSONBIN_URL
+        self.headers = JSONBIN_HEADERS
+    
+    def backup(self, db):
+        try:
+            data = {
+                "backup_date": datetime.now().isoformat(),
+                "users": self._get_users(db),
+                "bot_admins": self._get_admins(db),
+                "agents": self._get_agents(db),
+                "chats": self._get_chats(db),
+                "clans": self._get_clans(db),
+                "blacklist": self._get_blacklist(db),
+                "access_settings": self._get_access(db)
+            }
+            response = requests.put(self.url, headers=self.headers, json=data)
+            if response.status_code == 200:
+                print(f"✅ Резервное копирование: {datetime.now().strftime('%H:%M:%S')}")
+                return True
+            else:
+                print(f"❌ Ошибка: {response.status_code}")
+                return False
+        except Exception as e:
+            print(f"❌ Ошибка: {e}")
+            return False
+    
+    def restore(self, db):
+        try:
+            response = requests.get(self.url, headers=self.headers)
+            if response.status_code == 200:
+                data = response.json().get("record", {})
+                for user in data.get("users", []):
+                    db.cursor.execute("INSERT OR IGNORE INTO users (user_id, username, first_name, clan_id, warnings, registration_date) VALUES (?, ?, ?, ?, ?, ?)", (user["user_id"], user.get("username", ""), user.get("first_name", "Пользователь"), user.get("clan_id"), user.get("warnings", 0), datetime.now().isoformat()))
+                for admin in data.get("bot_admins", []):
+                    db.cursor.execute("INSERT OR IGNORE INTO bot_admins (user_id, level, added_by, added_date) VALUES (?, ?, ?, ?)", (admin["user_id"], admin.get("level", 1), admin.get("added_by", SUPER_ADMIN_ID), datetime.now().isoformat()))
+                for agent in data.get("agents", []):
+                    db.cursor.execute("INSERT OR IGNORE INTO support_agents (user_id, level) VALUES (?, ?)", (agent["user_id"], agent.get("level", 1)))
+                for clan in data.get("clans", []):
+                    db.cursor.execute("INSERT OR IGNORE INTO clans (clan_id, name, leader_id, rating, total_members, wins, losses) VALUES (?, ?, ?, ?, ?, ?, ?)", (clan["clan_id"], clan["name"], clan["leader_id"], clan.get("rating", 0), clan.get("total_members", 0), clan.get("wins", 0), clan.get("losses", 0)))
+                for user in data.get("blacklist", []):
+                    db.cursor.execute("INSERT OR IGNORE INTO bot_blacklist (user_id, reason, date, added_by) VALUES (?, ?, ?, ?)", (user["user_id"], user.get("reason", ""), datetime.now().isoformat(), SUPER_ADMIN_ID))
+                for setting in data.get("access_settings", []):
+                    db.cursor.execute("INSERT OR IGNORE INTO access_settings (setting_type, setting_name, display_name, min_level) VALUES (?, ?, ?, ?)", (setting["type"], setting["name"], setting.get("display_name", ""), setting.get("min_level", 10)))
+                db.conn.commit()
+                print(f"✅ Данные восстановлены из JSONBin")
+                return True
+        except Exception as e:
+            print(f"❌ Ошибка восстановления: {e}")
+        return False
+    
+    def _get_users(self, db):
+        db.cursor.execute("SELECT user_id, username, first_name, clan_id, warnings FROM users")
+        return [{"user_id": r[0], "username": r[1] or "", "first_name": r[2] or "Пользователь", "clan_id": r[3], "warnings": r[4]} for r in db.cursor.fetchall()]
+    
+    def _get_admins(self, db):
+        db.cursor.execute("SELECT user_id, level, added_by FROM bot_admins")
+        return [{"user_id": r[0], "level": r[1], "added_by": r[2]} for r in db.cursor.fetchall()]
+    
+    def _get_agents(self, db):
+        db.cursor.execute("SELECT user_id, level FROM support_agents")
+        return [{"user_id": r[0], "level": r[1]} for r in db.cursor.fetchall()]
+    
+    def _get_chats(self, db):
+        db.cursor.execute("SELECT chat_id, title FROM chats WHERE is_active = 1")
+        return [{"chat_id": r[0], "title": r[1] or "Чат"} for r in db.cursor.fetchall()]
+    
+    def _get_clans(self, db):
+        db.cursor.execute("SELECT clan_id, name, leader_id, rating, total_members, wins, losses FROM clans")
+        return [{"clan_id": r[0], "name": r[1], "leader_id": r[2], "rating": r[3], "total_members": r[4], "wins": r[5], "losses": r[6]} for r in db.cursor.fetchall()]
+    
+    def _get_blacklist(self, db):
+        db.cursor.execute("SELECT user_id, reason FROM bot_blacklist")
+        return [{"user_id": r[0], "reason": r[1] or ""} for r in db.cursor.fetchall()]
+    
+    def _get_access(self, db):
+        db.cursor.execute("SELECT setting_type, setting_name, display_name, min_level FROM access_settings")
+        return [{"type": r[0], "name": r[1], "display_name": r[2], "min_level": r[3]} for r in db.cursor.fetchall()]
+
+
 class Database:
     def __init__(self, db_name: str = "fluxy_bot.db"):
         self.conn = sqlite3.connect(db_name, check_same_thread=False)
@@ -36,6 +130,11 @@ class Database:
         self.create_tables()
         try:
             self.cursor.execute("ALTER TABLE chats ADD COLUMN antispam_max_messages INTEGER DEFAULT 5")
+            self.conn.commit()
+        except:
+            pass
+        try:
+            self.cursor.execute("ALTER TABLE reports ADD COLUMN message_link TEXT")
             self.conn.commit()
         except:
             pass
@@ -200,7 +299,7 @@ class Database:
         self.conn.commit()
 
     def get_top_clans(self, limit=10):
-        self.cursor.execute("SELECT clan_id, name, rating, leader_id, total_members FROM clans ORDER BY rating DESC LIMIT ?", (limit,))
+        self.cursor.execute("SELECT clan_id, name, rating, leader_id, total_members FROM clans ORDER BY rating DESC, total_members DESC LIMIT ?", (limit,))
         return self.cursor.fetchall()
 
     def update_clan_entry_type(self, clan_id, entry_type):
@@ -220,9 +319,31 @@ class Database:
         self.conn.commit()
 
     def declare_war(self, clan1_id, clan2_id, rating_stake):
-        self.cursor.execute("INSERT INTO clan_wars (clan1_id, clan2_id, rating_stake, start_date, end_date) VALUES (?, ?, ?, ?, ?)", (clan1_id, clan2_id, rating_stake, datetime.now().isoformat(), (datetime.now() + timedelta(hours=24)).isoformat()))
+        clan1 = self.get_clan_by_id(clan1_id)
+        clan2 = self.get_clan_by_id(clan2_id)
+        if not clan1 or not clan2:
+            return None
+        clan1_chance = 50
+        clan2_chance = 50
+        clan1_bonus = min((clan1[3] // 1000) * 5, 25)
+        clan2_bonus = min((clan2[3] // 1000) * 5, 25)
+        clan1_chance += clan1_bonus - clan2_bonus
+        clan2_chance += clan2_bonus - clan1_bonus
+        clan1_chance = max(25, min(75, clan1_chance))
+        clan2_chance = 100 - clan1_chance
+        winner_id = random.choices([clan1_id, clan2_id], weights=[clan1_chance, clan2_chance])[0]
+        loser_id = clan2_id if winner_id == clan1_id else clan1_id
+        self.add_clan_rating(winner_id, rating_stake)
+        self.add_clan_rating(loser_id, -rating_stake)
+        if winner_id == clan1_id:
+            self.cursor.execute("UPDATE clans SET wins = wins + 1 WHERE clan_id = ?", (clan1_id,))
+            self.cursor.execute("UPDATE clans SET losses = losses + 1 WHERE clan_id = ?", (clan2_id,))
+        else:
+            self.cursor.execute("UPDATE clans SET wins = wins + 1 WHERE clan_id = ?", (clan2_id,))
+            self.cursor.execute("UPDATE clans SET losses = losses + 1 WHERE clan_id = ?", (clan1_id,))
+        self.cursor.execute("INSERT INTO clan_wars (clan1_id, clan2_id, rating_stake, start_date, end_date, status, winner_clan_id) VALUES (?, ?, ?, ?, ?, 'ended', ?)", (clan1_id, clan2_id, rating_stake, datetime.now().isoformat(), datetime.now().isoformat(), winner_id))
         self.conn.commit()
-        return self.cursor.lastrowid
+        return {'winner_id': winner_id, 'clan1_chance': clan1_chance, 'clan2_chance': clan2_chance, 'clan1_name': clan1[1], 'clan2_name': clan2[1]}
 
     def add_clan_message(self, from_clan_id, to_clan_id, from_user_id, text):
         self.cursor.execute("INSERT INTO clan_messages (from_clan_id, to_clan_id, from_user_id, text, date) VALUES (?, ?, ?, ?, ?)", (from_clan_id, to_clan_id, from_user_id, text, datetime.now().isoformat()))
@@ -238,7 +359,7 @@ class Database:
         self.conn.commit()
 
     def get_active_punishments(self, user_id):
-        self.cursor.execute("SELECT * FROM punishments WHERE user_id = ? AND is_active = 1 ORDER BY start_date DESC", (user_id,))
+        self.cursor.execute("SELECT p.*, u.first_name as issued_by_name FROM punishments p LEFT JOIN users u ON p.issued_by = u.user_id WHERE p.user_id = ? AND p.is_active = 1 ORDER BY p.start_date DESC", (user_id,))
         return self.cursor.fetchall()
 
     def add_reward(self, user_id, from_user_id, text):
@@ -290,7 +411,7 @@ class Database:
         self.conn.commit()
 
     def add_chat(self, chat_id, title):
-        self.cursor.execute("INSERT OR REPLACE INTO chats (chat_id, title, added_date, is_active) VALUES (?, ?, ?, 1)", (chat_id, title, datetime.now().isoformat()))
+        self.cursor.execute("INSERT OR REPLACE INTO chats (chat_id, title, added_date, is_active) VALUES (?, ?, ?, 1)", (chat_id, title or "Чат", datetime.now().isoformat()))
         self.conn.commit()
 
     def get_all_chats(self):
@@ -418,23 +539,35 @@ class Database:
     def close(self):
         self.conn.close()
 
+
 db = Database()
+backup_manager = BackupManager()
+backup_manager.restore(db)
 
 def check_bot_access(user_id, function):
+    if user_id == SUPER_ADMIN_ID:
+        return True
     user_level = db.get_bot_admin_level(user_id)
     required_level = db.get_access_level('bot', function)
     return user_level >= required_level
 
 def check_chat_access(user_id, chat_id, function):
+    if user_id == SUPER_ADMIN_ID:
+        return True
     user_level = db.get_chat_admin_level(user_id, chat_id)
+    if user_level >= 10:
+        return True
     required_level = db.get_access_level('chat', function)
     return user_level >= required_level
 
 def check_agent_access(user_id, function):
+    if user_id == SUPER_ADMIN_ID:
+        return True
     user_level = db.get_agent_level(user_id)
     required_level = db.get_access_level('agent', function)
     return user_level >= required_level
-
+    
+    # ЧАСТЬ 2: Keyboards (все клавиатуры)
 class Keyboards:
     @staticmethod
     def main_menu():
@@ -448,6 +581,28 @@ class Keyboards:
 
     @staticmethod
     def main_menu_with_admin():
+        keyboard = [
+            [InlineKeyboardButton("⭐️ Админ панель бота", callback_data="admin_panel")],
+            [InlineKeyboardButton("👤 Профиль", callback_data="profile"), InlineKeyboardButton("🛡 Клан", callback_data="clan_menu")],
+            [InlineKeyboardButton("❓ Помощь", callback_data="help_menu"), InlineKeyboardButton("📋 Команды", callback_data="commands_menu")],
+            [InlineKeyboardButton("🔰 Агенты поддержки", callback_data="agents_list")],
+            [InlineKeyboardButton("➕ Добавить в чат", url=f"https://t.me/{BOT_USERNAME}?startgroup=true")]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    @staticmethod
+    def main_menu_with_chat_admin():
+        keyboard = [
+            [InlineKeyboardButton("👑 Админ панель чата", callback_data="chat_panel")],
+            [InlineKeyboardButton("👤 Профиль", callback_data="profile"), InlineKeyboardButton("🛡 Клан", callback_data="clan_menu")],
+            [InlineKeyboardButton("❓ Помощь", callback_data="help_menu"), InlineKeyboardButton("📋 Команды", callback_data="commands_menu")],
+            [InlineKeyboardButton("🔰 Агенты поддержки", callback_data="agents_list")],
+            [InlineKeyboardButton("➕ Добавить в чат", url=f"https://t.me/{BOT_USERNAME}?startgroup=true")]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    @staticmethod
+    def main_menu_with_both():
         keyboard = [
             [InlineKeyboardButton("⭐️ Админ панель бота", callback_data="admin_panel")],
             [InlineKeyboardButton("👑 Админ панель чата", callback_data="chat_panel")],
@@ -491,6 +646,15 @@ class Keyboards:
 
     @staticmethod
     def profile_menu():
+        keyboard = [
+            [InlineKeyboardButton("🏆 Награды", callback_data="my_rewards")],
+            [InlineKeyboardButton("🎁 Выдать награду", callback_data="give_reward")],
+            [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_start")]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    @staticmethod
+    def stats_menu():
         keyboard = [
             [InlineKeyboardButton("🏆 Награды", callback_data="my_rewards")],
             [InlineKeyboardButton("🎁 Выдать награду", callback_data="give_reward")],
@@ -619,7 +783,8 @@ class Keyboards:
             [InlineKeyboardButton("⬅️ Назад", callback_data="antispam_settings")]
         ]
         return InlineKeyboardMarkup(keyboard)
-
+        
+        # ЧАСТЬ 3: Handlers (основные команды)
 class Handlers:
     @staticmethod
     async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -629,6 +794,9 @@ class Handlers:
             await update.message.reply_text("❌ Вы в черном списке бота!")
             return
         
+        bot_rank_level = db.get_bot_admin_level(user.id)
+        
+        is_chat_owner = False
         if update.effective_chat.type != 'private':
             chat_id = update.effective_chat.id
             db.add_chat(chat_id, update.effective_chat.title or "Чат")
@@ -637,11 +805,12 @@ class Handlers:
                 for admin in admins:
                     if admin.status == 'creator':
                         db.update_chat_owner(chat_id, admin.user.id)
+                        if admin.user.id == user.id:
+                            is_chat_owner = True
                         break
             except:
                 pass
         
-        bot_rank_level = db.get_bot_admin_level(user.id)
         bot_rank_name = db.get_bot_rank_name(bot_rank_level)
         text = f"""👋 Добро пожаловать в Fluxy | Чат-менеджер.
 ━━━━━━━━━━━━━━━━
@@ -651,13 +820,13 @@ class Handlers:
 
 ━━━━━━━━━━━━━━━━
 Для продолжения нажмите на кнопку ниже ⬇️"""
-        is_chat_admin = False
-        if update.effective_chat.type != 'private':
-            chat_id = update.effective_chat.id
-            if db.get_chat_admin_level(user.id, chat_id) >= 1:
-                is_chat_admin = True
-        if bot_rank_level >= 1 or is_chat_admin:
+        
+        if bot_rank_level >= 1 and is_chat_owner:
+            await update.message.reply_text(text, reply_markup=Keyboards.main_menu_with_both())
+        elif bot_rank_level >= 1:
             await update.message.reply_text(text, reply_markup=Keyboards.main_menu_with_admin())
+        elif is_chat_owner:
+            await update.message.reply_text(text, reply_markup=Keyboards.main_menu_with_chat_admin())
         else:
             await update.message.reply_text(text, reply_markup=Keyboards.main_menu())
 
@@ -677,7 +846,7 @@ class Handlers:
                                 await update.message.reply_text(
                                     f"✅ Бот активирован!\n"
                                     f"👑 Владелец чата: {admin.user.first_name}\n"
-                                    f"📝 Используйте кнопку «👑 Админ панель чата» в главном меню."
+                                    f"📝 Напишите /start чтобы увидеть админ панель чата."
                                 )
                                 break
                     except:
@@ -755,20 +924,35 @@ class Handlers:
     @staticmethod
     async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not update.message.reply_to_message:
-            await update.message.reply_text("❌ Ответьте на сообщение!")
+            await update.message.reply_text("❌ Ответьте на сообщение!", reply_markup=Keyboards.back_to_start())
             return
         target = update.message.reply_to_message.from_user
         db.add_user(target.id, target.username, target.first_name)
         clan = db.get_user_clan(target.id)
         punishments = db.get_active_punishments(target.id)
+        user_data = db.get_user(target.id)
+        warnings = user_data[6] if user_data else 0
+        
         text = f"""👤 {target.first_name}
 ━━━━━━━━━━━━━━━━
 
 🆔 ID: {target.id}
 🎖️ Ранг: {db.get_bot_rank_name(db.get_bot_admin_level(target.id))}
 🛡️ Клан: {clan[1] if clan else 'Нет'}
+⚠️ Варны: {warnings}/3
 🔨 Наказаний: {len(punishments)}"""
-        await update.message.reply_text(text)
+        
+        if punishments:
+            text += "\n\n📋 Наказания:\n"
+            for p in punishments:
+                issued_name = p[9] if len(p) > 9 and p[9] else "Неизвестно"
+                ptype_emoji = "🔨" if p[3] == "ban" else "🔇" if p[3] == "mute" else "⚠️"
+                text += f"{ptype_emoji} {p[3]}: {p[4]}\n"
+                text += f"   👤 Выдал: {issued_name}\n"
+                text += f"   📅 Дата: {p[5][:10] if p[5] else 'Н/Д'}\n"
+                text += f"━━━━━━━━━━━━━━━━\n"
+        
+        await update.message.reply_text(text, reply_markup=Keyboards.stats_menu())
 
     @staticmethod
     async def create_clan(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -838,7 +1022,9 @@ class Handlers:
 🆔 ID: {clan[0]}
 🛡 Название: {clan[1]}
 🏆 Рейтинг: {clan[3]}
-👥 Участников: {clan[6]}"""
+👥 Участников: {clan[6]}
+🏅 Побед: {clan[7]}
+💀 Поражений: {clan[8]}"""
             await update.message.reply_text(text, reply_markup=Keyboards.my_clan_menu())
         else:
             await update.message.reply_text("🛡 Кланы\n\nВыберите действие:", reply_markup=Keyboards.clan_menu())
@@ -847,8 +1033,10 @@ class Handlers:
     async def clan_top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         clans = db.get_top_clans(15)
         text = "🏆 Топ 15 кланов:\n━━━━━━━━━━━━━━━━\n\n"
+        if not clans:
+            text += "Пока нет кланов"
         for i, clan in enumerate(clans, 1):
-            text += f"{i}. 🛡 {clan[1]}\n   🆔 ID: {clan[0]}\n   🏆 Рейтинг: {clan[2]}\n━━━━━━━━━━━━━━━━\n"
+            text += f"{i}. 🛡 {clan[1]}\n   🆔 ID: {clan[0]}\n   🏆 Рейтинг: {clan[2]}\n   👥 Участников: {clan[4]}\n━━━━━━━━━━━━━━━━\n"
         await update.message.reply_text(text)
 
     @staticmethod
@@ -913,7 +1101,7 @@ class Handlers:
         try:
             await context.bot.ban_chat_member(chat_id, target.id)
             db.add_punishment(target.id, chat_id, "ban", reason, 0, user.id)
-            await update.message.reply_text(f"✅ {target.first_name} забанен!")
+            await update.message.reply_text(f"✅ {target.first_name} забанен!\n📝 Причина: {reason}\n👤 Выдал: {user.first_name}")
         except:
             await update.message.reply_text("❌ Не удалось забанить!")
 
@@ -973,7 +1161,7 @@ class Handlers:
             until_date = datetime.now() + timedelta(minutes=mute_minutes)
             await context.bot.restrict_chat_member(chat_id, target.id, until_date=until_date, can_send_messages=False)
             db.add_punishment(target.id, chat_id, "mute", reason, mute_minutes, user.id)
-            await update.message.reply_text(f"✅ {target.first_name} замучен на {mute_minutes} минут!")
+            await update.message.reply_text(f"✅ {target.first_name} замучен на {mute_minutes} минут!\n📝 Причина: {reason}\n👤 Выдал: {user.first_name}")
         except:
             await update.message.reply_text("❌ Не удалось замутить!")
 
@@ -1013,9 +1201,26 @@ class Handlers:
             return
         target = update.message.reply_to_message.from_user
         reason = " ".join(context.args) if context.args else "Не указана"
-        db.cursor.execute("UPDATE users SET warnings = warnings + 1 WHERE user_id = ?", (target.id,))
+        
+        user_data = db.get_user(target.id)
+        current_warnings = user_data[6] if user_data else 0
+        new_warnings = current_warnings + 1
+        
+        db.cursor.execute("UPDATE users SET warnings = ? WHERE user_id = ?", (new_warnings, target.id))
         db.conn.commit()
-        await update.message.reply_text(f"⚠️ {target.first_name} получил предупреждение!")
+        
+        await update.message.reply_text(f"⚠️ {target.first_name} получил предупреждение!\n📝 Причина: {reason}\n👤 Выдал: {user.first_name}\n📊 Варнов: {new_warnings}/3")
+        
+        if new_warnings >= 3:
+            try:
+                await context.bot.ban_chat_member(chat_id, target.id)
+                await asyncio.sleep(1)
+                await context.bot.unban_chat_member(chat_id, target.id)
+                await update.message.reply_text(f"🚫 {target.first_name} кикнут за 3 предупреждения!")
+                db.cursor.execute("UPDATE users SET warnings = 0 WHERE user_id = ?", (target.id,))
+                db.conn.commit()
+            except:
+                pass
 
     @staticmethod
     async def unwarn(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1030,7 +1235,7 @@ class Handlers:
         target = update.message.reply_to_message.from_user
         db.cursor.execute("UPDATE users SET warnings = warnings - 1 WHERE user_id = ? AND warnings > 0", (target.id,))
         db.conn.commit()
-        await update.message.reply_text(f"✅ Предупреждение снято!")
+        await update.message.reply_text(f"✅ Предупреждение снято с {target.first_name}!")
 
     @staticmethod
     async def setadm(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1122,10 +1327,7 @@ class Handlers:
                 return
             text = "❗️ Жалобы:\n\n"
             for report in reports:
-                text += f"🆔 #{report[0]}\n"
-                text += f"👤 От: {report[7]}\n"
-                text += f"🎯 На: {report[8]}\n"
-                text += f"📝 Причина: {report[3]}\n"
+                text += f"🆔 #{report[0]}\n👤 От: {report[7]}\n🎯 На: {report[8]}\n📝 Причина: {report[3]}\n"
                 if report[9]:
                     text += f"🔗 Ссылка: {report[9]}\n"
                 text += f"━━━━━━━━━━━━━━━━\n"
@@ -1138,10 +1340,7 @@ class Handlers:
                 return
             text = "❓ Вопросы:\n\n"
             for question in questions:
-                text += f"🆔 #{question[0]}\n"
-                text += f"👤 От: {question[6]}\n"
-                text += f"💬 Вопрос: {question[2]}\n"
-                text += f"━━━━━━━━━━━━━━━━\n"
+                text += f"🆔 #{question[0]}\n👤 От: {question[6]}\n💬 Вопрос: {question[2]}\n━━━━━━━━━━━━━━━━\n"
             text += "\n/answer_question <ID> <ответ> или /reject_question <ID>"
             await update.message.reply_text(text)
 
@@ -1363,16 +1562,12 @@ class Handlers:
         question = " ".join(context.args)
         db.add_question(user.id, question)
         await update.message.reply_text("✅ Вопрос отправлен агентам!")
-        
         agents = db.get_all_agents()
         for agent in agents:
             try:
                 await context.bot.send_message(
                     agent[0],
-                    f"❓ Новый вопрос!\n\n"
-                    f"👤 От: {user.first_name}\n"
-                    f"💬 Вопрос: {question}\n\n"
-                    f"Ответьте: /reports"
+                    f"❓ Новый вопрос!\n👤 От: {user.first_name}\n💬 Вопрос: {question}\n\nОтветьте: /reports"
                 )
             except:
                 pass
@@ -1412,7 +1607,8 @@ class Handlers:
                 await update.message.reply_text(f"🚫 {user.first_name} кикнут за спам!\n📊 {recent} сообщений за {antispam_seconds} сек")
             except:
                 pass
-
+                
+                # ЧАСТЬ 4: Handlers (button_handler - обработчик кнопок)
     @staticmethod
     async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -1423,6 +1619,19 @@ class Handlers:
         if data == "back_to_start":
             db.add_user(user.id, user.username, user.first_name)
             bot_rank_level = db.get_bot_admin_level(user.id)
+            
+            is_chat_owner = False
+            if update.effective_chat.type != 'private':
+                chat_id = update.effective_chat.id
+                try:
+                    admins = await context.bot.get_chat_administrators(chat_id)
+                    for admin in admins:
+                        if admin.status == 'creator' and admin.user.id == user.id:
+                            is_chat_owner = True
+                            break
+                except:
+                    pass
+            
             bot_rank_name = db.get_bot_rank_name(bot_rank_level)
             text = f"""👋 Добро пожаловать в Fluxy | Чат-менеджер.
 ━━━━━━━━━━━━━━━━
@@ -1432,13 +1641,13 @@ class Handlers:
 
 ━━━━━━━━━━━━━━━━
 Для продолжения нажмите на кнопку ниже ⬇️"""
-            is_chat_admin = False
-            if update.effective_chat.type != 'private':
-                chat_id = update.effective_chat.id
-                if db.get_chat_admin_level(user.id, chat_id) >= 1:
-                    is_chat_admin = True
-            if bot_rank_level >= 1 or is_chat_admin:
+            
+            if bot_rank_level >= 1 and is_chat_owner:
+                await query.edit_message_text(text, reply_markup=Keyboards.main_menu_with_both())
+            elif bot_rank_level >= 1:
                 await query.edit_message_text(text, reply_markup=Keyboards.main_menu_with_admin())
+            elif is_chat_owner:
+                await query.edit_message_text(text, reply_markup=Keyboards.main_menu_with_chat_admin())
             else:
                 await query.edit_message_text(text, reply_markup=Keyboards.main_menu())
 
@@ -1463,16 +1672,11 @@ class Handlers:
                         if admin.user.id == user.id:
                             is_owner = True
                         break
-                
-                if is_owner:
+                if is_owner or db.get_bot_admin_level(user.id) >= 10:
                     await query.edit_message_text("👑 Админ панель чата", reply_markup=Keyboards.chat_panel())
                     return
-                
-                user_level = db.get_chat_admin_level(user.id, chat_id)
-                if user_level < 1 and db.get_bot_admin_level(user.id) < 1:
-                    await query.answer("❌ Только для админов чата!")
-                    return
-                await query.edit_message_text("👑 Админ панель чата", reply_markup=Keyboards.chat_panel())
+                await query.answer("❌ Только для владельца чата!")
+                return
             except:
                 await query.answer("❌ Ошибка проверки прав!")
                 return
@@ -1499,6 +1703,8 @@ class Handlers:
 🛡 Название: {clan[1]}
 🏆 Рейтинг: {clan[3]}
 👥 Участников: {clan[6]}
+🏅 Побед: {clan[7]}
+💀 Поражений: {clan[8]}
 
 ━━━━━━━━━━━━━━━━
 Выберите действие:"""
@@ -1509,9 +1715,7 @@ class Handlers:
 
         elif data == "create_clan_btn":
             await query.edit_message_text(
-                "➕ Создание клана\n━━━━━━━━━━━━━━━━\n\n"
-                "Отправьте команду:\n"
-                "/create_clan <название клана>",
+                "➕ Создание клана\n━━━━━━━━━━━━━━━━\n\nОтправьте команду:\n/create_clan <название клана>",
                 reply_markup=Keyboards.back_to_start()
             )
 
@@ -1521,18 +1725,13 @@ class Handlers:
             if not clans:
                 text += "Нет кланов"
             for i, clan in enumerate(clans, 1):
-                text += f"{i}. 🛡 {clan[1]}\n"
-                text += f"   🆔 ID: {clan[0]}\n"
-                text += f"   🏆 Рейтинг: {clan[2]}\n"
-                text += f"   👥 Участников: {clan[4]}\n"
-                text += f"━━━━━━━━━━━━━━━━\n"
+                text += f"{i}. 🛡 {clan[1]}\n   🆔 ID: {clan[0]}\n   🏆 Рейтинг: {clan[2]}\n   👥 Участников: {clan[4]}\n━━━━━━━━━━━━━━━━\n"
             await query.edit_message_text(text, reply_markup=Keyboards.back_to_start())
 
         elif data == "find_clan_btn":
             context.user_data['waiting_clan_id'] = True
             await query.edit_message_text(
-                "🔍 Поиск клана\n━━━━━━━━━━━━━━━━\n\n"
-                "Отправьте ID клана для вступления:",
+                "🔍 Поиск клана\n━━━━━━━━━━━━━━━━\n\nОтправьте ID клана для вступления:",
                 reply_markup=Keyboards.back_to_start()
             )
             return WAITING_FOR_CLAN_ID
@@ -1589,10 +1788,7 @@ class Handlers:
                     agent_name = agent[6] if agent[6] else "Неизвестный"
                     agent_username = f"(@{agent[5]})" if agent[5] else ""
                     agent_level = db.get_agent_rank_name(agent[1])
-                    text += f"{status}\n"
-                    text += f"👤 {agent_name} {agent_username}\n"
-                    text += f"🏆 Уровень: {agent_level}\n"
-                    text += f"━━━━━━━━━━━━━━━━\n"
+                    text += f"{status}\n👤 {agent_name} {agent_username}\n🏆 Уровень: {agent_level}\n━━━━━━━━━━━━━━━━\n"
             await query.edit_message_text(text, reply_markup=Keyboards.back_to_start())
 
         elif data == "admins_list":
@@ -1821,12 +2017,10 @@ class Handlers:
                         if admin.user.id == user.id:
                             is_owner = True
                         break
-                
                 if is_owner:
                     user_level = 10
                 else:
                     user_level = db.get_chat_admin_level(user.id, chat_id)
-                
                 if user_level < 10 and db.get_bot_admin_level(user.id) < 10:
                     await query.answer("❌ Только Владелец чата!")
                     return
@@ -1880,7 +2074,7 @@ class Handlers:
                 await query.answer("❌ Только в группе!")
                 return
             chat_id = update.effective_chat.id
-            if not check_chat_access(user.id, chat_id, 'welcome_settings') and db.get_bot_admin_level(user.id) < 10:
+            if not check_chat_access(user.id, chat_id, 'welcome_settings'):
                 await query.answer("❌ Нет доступа!")
                 return
             welcome_settings = db.get_welcome_settings(chat_id)
@@ -1922,7 +2116,7 @@ class Handlers:
                 await query.answer("❌ Только в группе!")
                 return
             chat_id = update.effective_chat.id
-            if not check_chat_access(user.id, chat_id, 'antispam_settings') and db.get_bot_admin_level(user.id) < 10:
+            if not check_chat_access(user.id, chat_id, 'antispam_settings'):
                 await query.answer("❌ Нет доступа!")
                 return
             antispam_settings = db.get_antispam_settings(chat_id)
@@ -2019,9 +2213,11 @@ class Handlers:
 
         elif data == "clan_top":
             clans = db.get_top_clans(15)
-            text = "🏆 Топ 15 кланов:\n\n"
+            text = "🏆 Топ 15 кланов:\n━━━━━━━━━━━━━━━━\n\n"
+            if not clans:
+                text += "Нет кланов"
             for i, clan in enumerate(clans, 1):
-                text += f"{i}. {clan[1]} - {clan[2]}\n"
+                text += f"{i}. 🛡 {clan[1]}\n   🏆 Рейтинг: {clan[2]}\n   👥 Участников: {clan[4]}\n━━━━━━━━━━━━━━━━\n"
             await query.edit_message_text(text, reply_markup=Keyboards.back_to_start())
 
         elif data == "clan_entry":
@@ -2078,10 +2274,7 @@ class Handlers:
             if not requests:
                 text += "Нет заявок"
             for req in requests:
-                text += f"👤 {req[7]} (ID: {req[2]})\n"
-                text += f"✅ /accept_request {req[0]}\n"
-                text += f"❌ /reject_request {req[0]}\n"
-                text += f"━━━━━━━━━━━━━━━━\n"
+                text += f"👤 {req[7]} (ID: {req[2]})\n✅ /accept_request {req[0]}\n❌ /reject_request {req[0]}\n━━━━━━━━━━━━━━━━\n"
             await query.edit_message_text(text, reply_markup=Keyboards.back_to_start())
 
         elif data == "declare_war":
@@ -2090,7 +2283,10 @@ class Handlers:
                 await query.answer("❌ Только лидер!")
                 return
             context.user_data['war_clan_id'] = True
-            await query.edit_message_text("⚔ Отправьте ID клана противника:", reply_markup=Keyboards.back_to_start())
+            await query.edit_message_text(
+                f"⚔ Объявление войны\n━━━━━━━━━━━━━━━━\n\nВаш клан: {clan[1]}\nВаш рейтинг: {clan[3]}\n\nШансы:\n• Базовый: 50%\n• +5% за 1000 рейтинга\n• Максимум: 75%\n\nОтправьте ID клана противника:",
+                reply_markup=Keyboards.back_to_start()
+            )
             return WAITING_FOR_WAR_CLAN_ID
 
         elif data == "message_clan":
@@ -2196,7 +2392,8 @@ class Handlers:
             context.user_data['broadcast_type'] = 'chats'
             await query.edit_message_text("📨 Отправьте текст рассылки:", reply_markup=Keyboards.back_to_start())
             return WAITING_FOR_BROADCAST_TEXT
-
+            
+            # ЧАСТЬ 5: Handlers (text_handler) + main()
     @staticmethod
     async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
@@ -2415,6 +2612,9 @@ class Handlers:
                 if not enemy_clan:
                     await update.message.reply_text("❌ Клан не найден!")
                     return WAITING_FOR_WAR_CLAN_ID
+                if enemy_clan_id == clan[0]:
+                    await update.message.reply_text("❌ Нельзя объявить войну своему клану!")
+                    return WAITING_FOR_WAR_CLAN_ID
                 context.user_data['enemy_clan_id'] = enemy_clan_id
                 context.user_data.pop('war_clan_id')
                 context.user_data['waiting_war_rating'] = True
@@ -2427,11 +2627,42 @@ class Handlers:
         if 'waiting_war_rating' in context.user_data:
             try:
                 rating = int(text)
+                if rating < 1:
+                    await update.message.reply_text("❌ Ставка должна быть больше 0!")
+                    return WAITING_FOR_WAR_RATING
                 clan = db.get_user_clan(user.id)
                 enemy_clan_id = context.user_data.get('enemy_clan_id')
-                war_id = db.declare_war(clan[0], enemy_clan_id, rating)
                 enemy_clan = db.get_clan_by_id(enemy_clan_id)
-                await update.message.reply_text(f"⚔ Война объявлена!\n🛡 Противник: {enemy_clan[1]}\n💰 Ставка: {rating}")
+                if clan[3] < rating:
+                    await update.message.reply_text(f"❌ У вашего клана недостаточно рейтинга! (У вас: {clan[3]})")
+                    return WAITING_FOR_WAR_RATING
+                if enemy_clan[3] < rating:
+                    await update.message.reply_text(f"❌ У клана противника недостаточно рейтинга! (У них: {enemy_clan[3]})")
+                    return WAITING_FOR_WAR_RATING
+                result = db.declare_war(clan[0], enemy_clan_id, rating)
+                if not result:
+                    await update.message.reply_text("❌ Ошибка!")
+                    return ConversationHandler.END
+                winner_name = result['clan1_name'] if result['winner_id'] == clan[0] else result['clan2_name']
+                loser_name = result['clan2_name'] if result['winner_id'] == clan[0] else result['clan1_name']
+                text = f"""⚔ ВОЙНА ЗАВЕРШЕНА!
+━━━━━━━━━━━━━━━━
+
+🛡 {result['clan1_name']}: {result['clan1_chance']}%
+🛡 {result['clan2_name']}: {result['clan2_chance']}%
+
+━━━━━━━━━━━━━━━━
+
+🏆 ПОБЕДИТЕЛЬ: {winner_name}!
+💰 Выигрыш: +{rating} рейтинга
+
+❌ ПРОИГРАВШИЙ: {loser_name}
+💸 Потеря: -{rating} рейтинга"""
+                await update.message.reply_text(text)
+                try:
+                    await context.bot.send_message(enemy_clan[2], f"⚔ Война с кланом «{clan[1]}» завершена!\n🏆 Победитель: {winner_name}\n💰 Ставка: {rating} рейтинга")
+                except:
+                    pass
                 context.user_data.clear()
                 return ConversationHandler.END
             except:
@@ -2474,6 +2705,13 @@ def main():
     print("🤖 Запуск Fluxy бота...")
     application = Application.builder().token(BOT_TOKEN).build()
 
+    # Автоматическое резервное копирование каждые 30 минут
+    async def auto_backup(context):
+        backup_manager.backup(db)
+    
+    application.job_queue.run_repeating(auto_backup, interval=1800, first=10)
+
+    # Регистрация всех команд
     application.add_handler(CommandHandler("start", Handlers.start))
     application.add_handler(CommandHandler("help", Handlers.help_command))
     application.add_handler(CommandHandler("profile", Handlers.profile))
@@ -2510,10 +2748,12 @@ def main():
     application.add_handler(CommandHandler("reject_request", Handlers.reject_request))
     application.add_handler(CommandHandler("ask", Handlers.ask))
 
+    # Обработчики сообщений
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, Handlers.on_bot_added), group=2)
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, Handlers.welcome_new_member), group=3)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, Handlers.antispam_check), group=1)
 
+    # ConversationHandler для диалогов
     conv_handler = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(Handlers.button_handler, pattern="^add_admin$"),
@@ -2552,10 +2792,12 @@ def main():
     )
     application.add_handler(conv_handler)
 
+    # Обработчик кнопок
     application.add_handler(CallbackQueryHandler(Handlers.button_handler))
 
     print("✅ Бот запущен!")
     print(f"👑 Основатель: {SUPER_ADMIN_ID}")
+    print("📦 Резервное копирование в JSONBin активировано")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
