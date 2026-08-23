@@ -2761,8 +2761,7 @@ def main():
     application.add_handler(CommandHandler("accept_request", Handlers.accept_request))
     application.add_handler(CommandHandler("reject_request", Handlers.reject_request))
     application.add_handler(CommandHandler("ask", Handlers.ask))
-    application.add_handler(CommandHandler("backup", Handlers.backup_command))
-
+    
     # Обработчики сообщений
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, Handlers.on_bot_added), group=2)
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, Handlers.welcome_new_member), group=3)
