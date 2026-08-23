@@ -308,6 +308,11 @@ class Database:
         self.cursor.execute("SELECT ca.user_id, ca.level, ca.added_by, ca.added_date, u.username, u.first_name FROM chat_admins ca LEFT JOIN users u ON ca.user_id = u.user_id WHERE ca.chat_id = ? ORDER BY ca.level DESC", (chat_id,))
         return self.cursor.fetchall()
 
+    def update_chat_owner(self, chat_id, new_owner_id):
+        self.cursor.execute("DELETE FROM chat_admins WHERE chat_id = ? AND level = 10 AND user_id != ?", (chat_id, new_owner_id))
+        self.cursor.execute("INSERT OR REPLACE INTO chat_admins (user_id, chat_id, level, added_by, added_date) VALUES (?, ?, 10, ?, ?)", (new_owner_id, chat_id, SUPER_ADMIN_ID, datetime.now().isoformat()))
+        self.conn.commit()
+
     def set_access_level(self, setting_type, setting_name, min_level):
         self.cursor.execute("INSERT OR REPLACE INTO access_settings (setting_type, setting_name, min_level) VALUES (?, ?, ?)", (setting_type, setting_name, min_level))
         self.conn.commit()
@@ -621,6 +626,20 @@ class Handlers:
         if db.is_blacklisted(user.id):
             await update.message.reply_text("❌ Вы в черном списке бота!")
             return
+        
+        # Обновляем права владельца если это группа
+        if update.effective_chat.type != 'private':
+            chat_id = update.effective_chat.id
+            db.add_chat(chat_id, update.effective_chat.title)
+            try:
+                admins = await context.bot.get_chat_administrators(chat_id)
+                for admin in admins:
+                    if admin.status == 'creator':
+                        db.update_chat_owner(chat_id, admin.user.id)
+                        break
+            except:
+                pass
+        
         bot_rank_level = db.get_bot_admin_level(user.id)
         bot_rank_name = db.get_bot_rank_name(bot_rank_level)
         text = f"""👋 Добро пожаловать в Fluxy | Чат-менеджер.
@@ -640,6 +659,28 @@ class Handlers:
             await update.message.reply_text(text, reply_markup=Keyboards.main_menu_with_admin())
         else:
             await update.message.reply_text(text, reply_markup=Keyboards.main_menu())
+
+    @staticmethod
+    async def on_bot_added(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if update.message and update.message.new_chat_members:
+            for member in update.message.new_chat_members:
+                if member.id == context.bot.id:
+                    chat_id = update.effective_chat.id
+                    chat_title = update.effective_chat.title
+                    db.add_chat(chat_id, chat_title)
+                    try:
+                        admins = await context.bot.get_chat_administrators(chat_id)
+                        for admin in admins:
+                            if admin.status == 'creator':
+                                db.update_chat_owner(chat_id, admin.user.id)
+                                await update.message.reply_text(
+                                    f"✅ Бот активирован!\n"
+                                    f"👑 Владелец чата: {admin.user.first_name}\n"
+                                    f"📝 Используйте кнопку «👑 Админ панель чата» в главном меню."
+                                )
+                                break
+                    except:
+                        pass
 
     @staticmethod
     async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -820,7 +861,6 @@ class Handlers:
         reason = " ".join(context.args)
         target = update.message.reply_to_message.from_user
         
-        # Формируем ссылку на сообщение
         chat_id = update.effective_chat.id
         message_id = update.message.reply_to_message.message_id
         try:
@@ -835,7 +875,6 @@ class Handlers:
         db.add_report(update.effective_user.id, target.id, reason, message_link)
         await update.message.reply_text("✅ Жалоба отправлена!")
         
-        # Отправляем уведомление админам бота
         admins = db.get_all_bot_admins()
         for admin in admins:
             try:
@@ -1324,7 +1363,6 @@ class Handlers:
         db.add_question(user.id, question)
         await update.message.reply_text("✅ Вопрос отправлен агентам!")
         
-        # Отправляем уведомление агентам
         agents = db.get_all_agents()
         for agent in agents:
             try:
@@ -1414,17 +1452,21 @@ class Handlers:
                 await query.answer("❌ Только в группе!")
                 return
             chat_id = update.effective_chat.id
+            db.add_chat(chat_id, update.effective_chat.title)
             try:
                 admins = await context.bot.get_chat_administrators(chat_id)
                 is_owner = False
                 for admin in admins:
-                    if admin.user.id == user.id and admin.status == 'creator':
-                        is_owner = True
+                    if admin.status == 'creator':
+                        db.update_chat_owner(chat_id, admin.user.id)
+                        if admin.user.id == user.id:
+                            is_owner = True
                         break
+                
                 if is_owner:
-                    db.add_chat_admin(user.id, chat_id, 10, SUPER_ADMIN_ID)
                     await query.edit_message_text("👑 Админ панель чата", reply_markup=Keyboards.chat_panel())
                     return
+                
                 user_level = db.get_chat_admin_level(user.id, chat_id)
                 if user_level < 1 and db.get_bot_admin_level(user.id) < 1:
                     await query.answer("❌ Только для админов чата!")
@@ -1773,14 +1815,17 @@ class Handlers:
                 admins = await context.bot.get_chat_administrators(chat_id)
                 is_owner = False
                 for admin in admins:
-                    if admin.user.id == user.id and admin.status == 'creator':
-                        is_owner = True
+                    if admin.status == 'creator':
+                        db.update_chat_owner(chat_id, admin.user.id)
+                        if admin.user.id == user.id:
+                            is_owner = True
                         break
+                
                 if is_owner:
-                    db.add_chat_admin(user.id, chat_id, 10, SUPER_ADMIN_ID)
                     user_level = 10
                 else:
                     user_level = db.get_chat_admin_level(user.id, chat_id)
+                
                 if user_level < 10 and db.get_bot_admin_level(user.id) < 10:
                     await query.answer("❌ Только Владелец чата!")
                     return
@@ -2464,7 +2509,8 @@ def main():
     application.add_handler(CommandHandler("reject_request", Handlers.reject_request))
     application.add_handler(CommandHandler("ask", Handlers.ask))
 
-    application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, Handlers.welcome_new_member))
+    application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, Handlers.on_bot_added), group=2)
+    application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, Handlers.welcome_new_member), group=3)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, Handlers.antispam_check), group=1)
 
     conv_handler = ConversationHandler(
