@@ -14,7 +14,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 import logging
 import os
 
-BOT_TOKEN = "8547620515:AAGPC2IJ4qLxSXXDqjyT5foG8sYXlLYud70"
+BOT_TOKEN = "8980577910:AAGJFO588dLcq86neXNAcPUwIW9_xG7UHc8"
 SUPER_ADMIN_ID = 8669060906
 BOT_USERNAME = "fluxy_cm_bot"
 
@@ -2040,12 +2040,20 @@ class Handlers:
 
     @staticmethod
     async def backup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        user = update.effective_user
-        if db.get_bot_admin_level(user.id) < 10:
-            await update.message.reply_text("❌ Только Основатель!")
-            return
-        db.save_data()
-        await update.message.reply_text("✅ Сохранено!")
+    	user = update.effective_user
+    	
+    	if db.get_bot_admin_level(user.id) < 10:
+    	   await update.message.reply_text("❌ Только Основатель!")
+    	   return
+    	   
+    	   status_message = await update.message.reply_text("📦 Сохраняю данные...")
+    	   
+    	   try:
+    	   	db.save_data()
+    	   	await status_message.edit_text("✅ Данные успешно сохранены!")
+    	   except Exception as e:
+    	   	logger.error(f"Ошибка сохранения: {e}")
+    	   	await status_message.edit_text(f"❌ Ошибка: {str(e)[:100]}")
 
     @staticmethod
     async def antispam_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
