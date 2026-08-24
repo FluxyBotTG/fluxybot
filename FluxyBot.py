@@ -37,6 +37,9 @@ WAITING_FOR_REWARD_TEXT = 33
 WAITING_FOR_ACCESS_LEVEL = 34
 WAITING_FOR_TRANSFER_CLAN = 35
 WAITING_FOR_RENAME = 36
+WAITING_FOR_QUESTION = 37
+WAITING_FOR_REPORT_ANSWER = 38
+WAITING_FOR_QUESTION_ANSWER = 39
 
 JSONBIN_API_KEY = "$2a$10$oQFi.r.b4KoxCupZTsKdzeH6ZktFfBr12SBHnTXgkmRwGBJr1bRdm"
 JSONBIN_BIN_ID = "6a8ac58bda38895dfe06783c"
@@ -49,578 +52,537 @@ JSONBIN_HEADERS = {
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class BackupManager:
+class Database:
+    """База данных на JSONBin без SQLite"""
+    
     def __init__(self):
-        self.url = JSONBIN_URL
-        self.headers = JSONBIN_HEADERS
         self.local_file = "backup_local.json"
+        self.data = {}
+        self.load_data()
     
-    def backup(self, db):
-        try:
-            data = {
-                "backup_date": datetime.now().isoformat(),
-                "users": self._get_users(db),
-                "bot_admins": self._get_admins(db),
-                "agents": self._get_agents(db),
-                "chats": self._get_chats(db),
-                "clans": self._get_clans(db),
-                "blacklist": self._get_blacklist(db),
-                "access_settings": self._get_access(db)
-            }
-            try:
-                with open(self.local_file, 'w') as f:
-                    json.dump(data, f)
-                print(f"✅ Локальное сохранение: {self.local_file}")
-            except Exception as e:
-                print(f"❌ Ошибка локального сохранения: {e}")
-            try:
-                response = requests.put(self.url, headers=self.headers, json=data, timeout=5)
-                if response.status_code == 200:
-                    print(f"✅ JSONBin сохранение успешно")
-                    return True
-                else:
-                    print(f"❌ JSONBin ошибка: {response.status_code}")
-                    return True
-            except Exception as e:
-                print(f"❌ JSONBin недоступен: {e}")
-                return True
-        except Exception as e:
-            print(f"❌ Ошибка backup: {e}")
-            return False
-    
-    def restore(self, db):
+    def load_data(self):
+        """Загрузка данных из локального файла или JSONBin"""
+        # Пробуем локальный файл
         try:
             with open(self.local_file, 'r') as f:
-                data = json.load(f)
-                print(f"✅ Восстановление из локального файла")
-                self._restore_data(db, data)
-                return True
+                self.data = json.load(f)
+                print("✅ Загружено из локального файла")
+                return
         except:
             pass
+        
+        # Пробуем JSONBin
         try:
-            response = requests.get(self.url, headers=self.headers, timeout=5)
+            response = requests.get(JSONBIN_URL, headers=JSONBIN_HEADERS, timeout=5)
             if response.status_code == 200:
-                data = response.json().get("record", {})
-                print(f"✅ Восстановление из JSONBin")
-                self._restore_data(db, data)
-                return True
+                self.data = response.json().get("record", {})
+                print("✅ Загружено из JSONBin")
+                return
         except Exception as e:
-            print(f"❌ Ошибка восстановления: {e}")
-        return False
+            print(f"❌ Ошибка загрузки из JSONBin: {e}")
+        
+        # Пустые данные
+        self.data = {
+            "users": [],
+            "bot_admins": [],
+            "support_agents": [],
+            "chats": [],
+            "clans": [],
+            "bot_blacklist": [],
+            "access_settings": [],
+            "reports": [],
+            "questions": [],
+            "chat_messages": [],
+            "clan_bonus_usage": [],
+        }
+        print("✅ Создана пустая база данных")
     
-    def _restore_data(self, db, data):
+    def save_data(self):
+        """Сохранение в локальный файл и JSONBin"""
+        # Локально
         try:
-            for user in data.get("users", []):
-                db.cursor.execute("INSERT OR IGNORE INTO users (user_id, username, first_name, clan_id, warnings, registration_date) VALUES (?, ?, ?, ?, ?, ?)", (user["user_id"], user.get("username", ""), user.get("first_name", "Пользователь"), user.get("clan_id"), user.get("warnings", 0), datetime.now().isoformat()))
-            for admin in data.get("bot_admins", []):
-                db.cursor.execute("INSERT OR IGNORE INTO bot_admins (user_id, level, added_by, added_date) VALUES (?, ?, ?, ?)", (admin["user_id"], admin.get("level", 1), admin.get("added_by", SUPER_ADMIN_ID), datetime.now().isoformat()))
-            for agent in data.get("agents", []):
-                db.cursor.execute("INSERT OR IGNORE INTO support_agents (user_id, level) VALUES (?, ?)", (agent["user_id"], agent.get("level", 1)))
-            for clan in data.get("clans", []):
-                db.cursor.execute("INSERT OR IGNORE INTO clans (clan_id, name, leader_id, rating, total_members, wins, losses) VALUES (?, ?, ?, ?, ?, ?, ?)", (clan["clan_id"], clan["name"], clan["leader_id"], clan.get("rating", 0), clan.get("total_members", 0), clan.get("wins", 0), clan.get("losses", 0)))
-            for user in data.get("blacklist", []):
-                db.cursor.execute("INSERT OR IGNORE INTO bot_blacklist (user_id, reason, date, added_by) VALUES (?, ?, ?, ?)", (user["user_id"], user.get("reason", ""), datetime.now().isoformat(), SUPER_ADMIN_ID))
-            for setting in data.get("access_settings", []):
-                db.cursor.execute("INSERT OR IGNORE INTO access_settings (setting_type, setting_name, display_name, min_level) VALUES (?, ?, ?, ?)", (setting["type"], setting["name"], setting.get("display_name", ""), setting.get("min_level", 10)))
-            db.conn.commit()
-        except Exception as e:
-            print(f"❌ Ошибка восстановления данных: {e}")
-    
-    def _get_users(self, db):
-        db.cursor.execute("SELECT user_id, username, first_name, clan_id, warnings FROM users")
-        return [{"user_id": r[0], "username": r[1] or "", "first_name": r[2] or "Пользователь", "clan_id": r[3], "warnings": r[4]} for r in db.cursor.fetchall()]
-    
-    def _get_admins(self, db):
-        db.cursor.execute("SELECT user_id, level, added_by FROM bot_admins")
-        return [{"user_id": r[0], "level": r[1], "added_by": r[2]} for r in db.cursor.fetchall()]
-    
-    def _get_agents(self, db):
-        db.cursor.execute("SELECT user_id, level FROM support_agents")
-        return [{"user_id": r[0], "level": r[1]} for r in db.cursor.fetchall()]
-    
-    def _get_chats(self, db):
-        db.cursor.execute("SELECT chat_id, title FROM chats WHERE is_active = 1")
-        return [{"chat_id": r[0], "title": r[1] or "Чат"} for r in db.cursor.fetchall()]
-    
-    def _get_clans(self, db):
-        db.cursor.execute("SELECT clan_id, name, leader_id, rating, total_members, wins, losses FROM clans")
-        return [{"clan_id": r[0], "name": r[1], "leader_id": r[2], "rating": r[3], "total_members": r[4], "wins": r[5], "losses": r[6]} for r in db.cursor.fetchall()]
-    
-    def _get_blacklist(self, db):
-        db.cursor.execute("SELECT user_id, reason FROM bot_blacklist")
-        return [{"user_id": r[0], "reason": r[1] or ""} for r in db.cursor.fetchall()]
-    
-    def _get_access(self, db):
-        db.cursor.execute("SELECT setting_type, setting_name, display_name, min_level FROM access_settings")
-        return [{"type": r[0], "name": r[1], "display_name": r[2], "min_level": r[3]} for r in db.cursor.fetchall()]
-
-
-class Database:
-    def __init__(self, db_name: str = "fluxy_bot.db"):
-        self.conn = sqlite3.connect(db_name, check_same_thread=False)
-        self.cursor = self.conn.cursor()
-        self.create_tables()
-        try:
-            self.cursor.execute("ALTER TABLE chats ADD COLUMN antispam_max_messages INTEGER DEFAULT 5")
-            self.conn.commit()
+            with open(self.local_file, 'w') as f:
+                json.dump(self.data, f)
         except:
             pass
+        
+        # JSONBin
         try:
-            self.cursor.execute("ALTER TABLE reports ADD COLUMN message_link TEXT")
-            self.conn.commit()
-        except:
-            pass
-
-    def create_tables(self):
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, username TEXT, first_name TEXT, clan_id INTEGER DEFAULT NULL, clan_join_date TEXT, warnings INTEGER DEFAULT 0, registration_date TEXT, last_activity TEXT)''')
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS bot_admins (user_id INTEGER PRIMARY KEY, level INTEGER DEFAULT 1, added_by INTEGER, added_date TEXT)''')
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS support_agents (user_id INTEGER PRIMARY KEY, level INTEGER DEFAULT 1, status TEXT DEFAULT 'offline', answered_questions INTEGER DEFAULT 0, online_time INTEGER DEFAULT 0)''')
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS chats (chat_id INTEGER PRIMARY KEY, title TEXT, added_date TEXT, is_active INTEGER DEFAULT 1, welcome_text TEXT DEFAULT NULL, welcome_enabled INTEGER DEFAULT 0, antispam_enabled INTEGER DEFAULT 0, antispam_seconds INTEGER DEFAULT 5, antispam_max_messages INTEGER DEFAULT 5)''')
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS chat_admins (user_id INTEGER, chat_id INTEGER, level INTEGER DEFAULT 1, added_by INTEGER, added_date TEXT, PRIMARY KEY (user_id, chat_id))''')
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS clans (clan_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, leader_id INTEGER, rating INTEGER DEFAULT 0, entry_type TEXT DEFAULT 'open', created_date TEXT, total_members INTEGER DEFAULT 0, wins INTEGER DEFAULT 0, losses INTEGER DEFAULT 0)''')
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS clan_messages (message_id INTEGER PRIMARY KEY AUTOINCREMENT, from_clan_id INTEGER, to_clan_id INTEGER, from_user_id INTEGER, text TEXT, date TEXT, is_read INTEGER DEFAULT 0)''')
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS punishments (punishment_id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, chat_id INTEGER, type TEXT, reason TEXT, start_date TEXT, end_date TEXT, is_active INTEGER DEFAULT 1, issued_by INTEGER)''')
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS rewards (reward_id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, from_user_id INTEGER, text TEXT, date TEXT, is_active INTEGER DEFAULT 1)''')
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS bot_blacklist (user_id INTEGER PRIMARY KEY, reason TEXT, date TEXT, added_by INTEGER)''')
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS bot_rank_names (level INTEGER PRIMARY KEY, name TEXT)''')
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS agent_rank_names (level INTEGER PRIMARY KEY, name TEXT)''')
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS chat_rank_names (level INTEGER PRIMARY KEY, name TEXT)''')
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS clan_requests (request_id INTEGER PRIMARY KEY AUTOINCREMENT, clan_id INTEGER, user_id INTEGER, date TEXT, status TEXT DEFAULT 'pending')''')
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS clan_wars (war_id INTEGER PRIMARY KEY AUTOINCREMENT, clan1_id INTEGER, clan2_id INTEGER, rating_stake INTEGER, start_date TEXT, end_date TEXT, status TEXT DEFAULT 'active', winner_clan_id INTEGER DEFAULT NULL)''')
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS reports (report_id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, reported_user_id INTEGER, reason TEXT, date TEXT, status TEXT DEFAULT 'pending', handled_by INTEGER DEFAULT NULL, message_link TEXT)''')
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS questions (question_id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, text TEXT, date TEXT, status TEXT DEFAULT 'pending', answered_by INTEGER DEFAULT NULL, answer_text TEXT DEFAULT NULL)''')
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS access_settings (setting_id INTEGER PRIMARY KEY AUTOINCREMENT, setting_type TEXT, setting_name TEXT, display_name TEXT, min_level INTEGER DEFAULT 10, UNIQUE(setting_type, setting_name))''')
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS antispam_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, chat_id INTEGER, message_time TEXT)''')
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS chat_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, chat_id INTEGER, message_time TEXT)''')
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS clan_bonus_usage (clan_id INTEGER, user_id INTEGER, usage_date TEXT, PRIMARY KEY (clan_id, user_id, usage_date))''')
-        self.init_default_ranks()
-        self.init_default_access()
-        self.conn.commit()
-        print("✅ Все таблицы созданы")
-
-    def init_default_ranks(self):
-        bot_ranks = {0: "Пользователь", 1: "Младший модератор", 2: "Модератор", 3: "Старший модератор", 4: "Младший админ", 5: "Админ", 6: "Старший админ", 7: "Главный админ", 8: "Заместитель основателя", 9: "Сооснователь", 10: "Основатель бота"}
-        for level, name in bot_ranks.items():
-            self.cursor.execute("INSERT OR IGNORE INTO bot_rank_names (level, name) VALUES (?, ?)", (level, name))
-        agent_ranks = {1: "Младший агент", 2: "Агент", 3: "Старший агент"}
-        for level, name in agent_ranks.items():
-            self.cursor.execute("INSERT OR IGNORE INTO agent_rank_names (level, name) VALUES (?, ?)", (level, name))
-        chat_ranks = {0: "Пользователь", 1: "Младший модератор", 2: "Модератор", 3: "Старший модератор", 4: "Младший админ", 5: "Админ", 6: "Старший админ", 7: "Главный админ", 8: "Заместитель владельца", 9: "Сооснователь", 10: "Владелец"}
-        for level, name in chat_ranks.items():
-            self.cursor.execute("INSERT OR IGNORE INTO chat_rank_names (level, name) VALUES (?, ?)", (level, name))
-        print("✅ Ранги инициализированы")
-
-    def init_default_access(self):
-        bot_functions = {'manage_admins': '👥 Управление админами', 'manage_agents': '🔰 Управление агентами', 'blacklist': '🚫 Черный список', 'give_clan_rep': '⭐️ Выдача репутации', 'view_chats': '🗂 Просмотр чатов', 'stats': '📊 Статистика', 'broadcast': '📨 Рассылка', 'view_reports': '❗️ Просмотр жалоб', 'give_reward': '🎁 Выдача наград'}
-        for func, display_name in bot_functions.items():
-            self.cursor.execute("INSERT OR IGNORE INTO access_settings (setting_type, setting_name, display_name, min_level) VALUES ('bot', ?, ?, 10)", (func, display_name))
-        agent_functions = {'view_questions': '❓ Просмотр вопросов', 'answer_questions': '✉️ Ответ на вопросы', 'hstats': '📊 Статистика агента'}
-        for func, display_name in agent_functions.items():
-            self.cursor.execute("INSERT OR IGNORE INTO access_settings (setting_type, setting_name, display_name, min_level) VALUES ('agent', ?, ?, 3)", (func, display_name))
-        chat_functions = {'ban': '🔨 Бан', 'unban': '🔓 Разбан', 'mute': '🔇 Мут', 'unmute': '🔊 Размут', 'warn': '⚠️ Предупреждение', 'unwarn': '✅ Снятие предупреждения', 'setadm': '👑 Назначение админов', 'welcome_settings': '👋 Приветствие', 'antispam_settings': '🚫 Антиспам'}
-        for func, display_name in chat_functions.items():
-            self.cursor.execute("INSERT OR IGNORE INTO access_settings (setting_type, setting_name, display_name, min_level) VALUES ('chat', ?, ?, 10)", (func, display_name))
-        self.conn.commit()
-        print("✅ Доступы инициализированы")
-
+            response = requests.put(JSONBIN_URL, headers=JSONBIN_HEADERS, json=self.data, timeout=5)
+            if response.status_code == 200:
+                print("✅ Сохранено в JSONBin")
+        except Exception as e:
+            print(f"❌ Ошибка сохранения: {e}")
+    
+    # Методы для пользователей
     def add_user(self, user_id, username, first_name):
-        username = username or ""
-        first_name = first_name or "Пользователь"
-        self.cursor.execute("INSERT OR IGNORE INTO users (user_id, username, first_name, registration_date, last_activity) VALUES (?, ?, ?, ?, ?)", (user_id, username, first_name, datetime.now().isoformat(), datetime.now().isoformat()))
-        self.conn.commit()
-
+        for user in self.data["users"]:
+            if user["user_id"] == user_id:
+                return
+        self.data["users"].append({
+            "user_id": user_id,
+            "username": username or "",
+            "first_name": first_name or "Пользователь",
+            "clan_id": None,
+            "warnings": 0,
+            "registration_date": datetime.now().isoformat()
+        })
+        self.save_data()
+    
     def get_user(self, user_id):
-        self.cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-        return self.cursor.fetchone()
-
-    def get_bot_rank_name(self, level):
-        self.cursor.execute("SELECT name FROM bot_rank_names WHERE level = ?", (level,))
-        result = self.cursor.fetchone()
-        return result[0] if result else f"Уровень {level}"
-
-    def get_chat_rank_name(self, level):
-        self.cursor.execute("SELECT name FROM chat_rank_names WHERE level = ?", (level,))
-        result = self.cursor.fetchone()
-        return result[0] if result else f"Уровень {level}"
-
-    def get_agent_rank_name(self, level):
-        self.cursor.execute("SELECT name FROM agent_rank_names WHERE level = ?", (level,))
-        result = self.cursor.fetchone()
-        return result[0] if result else f"Уровень {level}"
-
-    def add_bot_admin(self, user_id, level, added_by):
-        self.cursor.execute("INSERT OR REPLACE INTO bot_admins (user_id, level, added_by, added_date) VALUES (?, ?, ?, ?)", (user_id, level, added_by, datetime.now().isoformat()))
-        self.conn.commit()
-
-    def remove_bot_admin(self, user_id):
-        self.cursor.execute("DELETE FROM bot_admins WHERE user_id = ?", (user_id,))
-        self.conn.commit()
-
+        for user in self.data["users"]:
+            if user["user_id"] == user_id:
+                return user
+        return None
+    
     def get_bot_admin_level(self, user_id):
         if user_id == SUPER_ADMIN_ID:
             return 10
-        self.cursor.execute("SELECT level FROM bot_admins WHERE user_id = ?", (user_id,))
-        result = self.cursor.fetchone()
-        return result[0] if result else 0
-
+        for admin in self.data["bot_admins"]:
+            if admin["user_id"] == user_id:
+                return admin.get("level", 1)
+        return 0
+    
+    def add_bot_admin(self, user_id, level, added_by):
+        for admin in self.data["bot_admins"]:
+            if admin["user_id"] == user_id:
+                admin["level"] = level
+                self.save_data()
+                return
+        self.data["bot_admins"].append({
+            "user_id": user_id,
+            "level": level,
+            "added_by": added_by,
+            "added_date": datetime.now().isoformat()
+        })
+        self.save_data()
+    
+    def remove_bot_admin(self, user_id):
+        self.data["bot_admins"] = [a for a in self.data["bot_admins"] if a["user_id"] != user_id]
+        self.save_data()
+    
     def get_all_bot_admins(self):
-        self.cursor.execute("SELECT ba.user_id, ba.level, ba.added_by, ba.added_date, u.username, u.first_name FROM bot_admins ba LEFT JOIN users u ON ba.user_id = u.user_id ORDER BY ba.level DESC")
-        return self.cursor.fetchall()
-
+        admins = []
+        for admin in self.data["bot_admins"]:
+            user = self.get_user(admin["user_id"])
+            admins.append({
+                "user_id": admin["user_id"],
+                "level": admin["level"],
+                "username": user["username"] if user else "",
+                "first_name": user["first_name"] if user else "Пользователь"
+            })
+        return sorted(admins, key=lambda x: x["level"], reverse=True)
+    
     def update_bot_admin_level(self, user_id, level):
-        self.cursor.execute("UPDATE bot_admins SET level = ? WHERE user_id = ?", (level, user_id))
-        self.conn.commit()
-
+        for admin in self.data["bot_admins"]:
+            if admin["user_id"] == user_id:
+                admin["level"] = level
+                self.save_data()
+                return
+    
     def add_agent(self, user_id, level):
-        self.cursor.execute("INSERT OR REPLACE INTO support_agents (user_id, level) VALUES (?, ?)", (user_id, level))
-        self.conn.commit()
-
+        for agent in self.data["support_agents"]:
+            if agent["user_id"] == user_id:
+                agent["level"] = level
+                self.save_data()
+                return
+        self.data["support_agents"].append({
+            "user_id": user_id,
+            "level": level,
+            "status": "offline",
+            "answered_questions": 0
+        })
+        self.save_data()
+    
     def remove_agent(self, user_id):
-        self.cursor.execute("DELETE FROM support_agents WHERE user_id = ?", (user_id,))
-        self.conn.commit()
-
+        self.data["support_agents"] = [a for a in self.data["support_agents"] if a["user_id"] != user_id]
+        self.save_data()
+    
     def get_agent_level(self, user_id):
-        self.cursor.execute("SELECT level FROM support_agents WHERE user_id = ?", (user_id,))
-        result = self.cursor.fetchone()
-        return result[0] if result else 0
-
+        for agent in self.data["support_agents"]:
+            if agent["user_id"] == user_id:
+                return agent.get("level", 1)
+        return 0
+    
     def get_all_agents(self):
-        self.cursor.execute("SELECT sa.user_id, sa.level, sa.status, sa.answered_questions, sa.online_time, u.username, u.first_name FROM support_agents sa LEFT JOIN users u ON sa.user_id = u.user_id ORDER BY sa.level DESC")
-        return self.cursor.fetchall()
-
+        agents = []
+        for agent in self.data["support_agents"]:
+            user = self.get_user(agent["user_id"])
+            agents.append({
+                "user_id": agent["user_id"],
+                "level": agent["level"],
+                "status": agent.get("status", "offline"),
+                "answered_questions": agent.get("answered_questions", 0),
+                "first_name": user["first_name"] if user else "Агент"
+            })
+        return agents
+    
     def update_agent_level(self, user_id, level):
-        self.cursor.execute("UPDATE support_agents SET level = ? WHERE user_id = ?", (level, user_id))
-        self.conn.commit()
-
+        for agent in self.data["support_agents"]:
+            if agent["user_id"] == user_id:
+                agent["level"] = level
+                self.save_data()
+                return
+    
+    # Кланы
     def create_clan(self, name, leader_id):
-        self.cursor.execute("INSERT INTO clans (name, leader_id, created_date, total_members) VALUES (?, ?, ?, 1)", (name, leader_id, datetime.now().isoformat()))
-        self.conn.commit()
-        clan_id = self.cursor.lastrowid
-        self.cursor.execute("UPDATE users SET clan_id = ?, clan_join_date = ? WHERE user_id = ?", (clan_id, datetime.now().isoformat(), leader_id))
-        self.conn.commit()
+        clan_id = len(self.data["clans"]) + 1
+        self.data["clans"].append({
+            "clan_id": clan_id,
+            "name": name,
+            "leader_id": leader_id,
+            "rating": 0,
+            "entry_type": "open",
+            "created_date": datetime.now().isoformat(),
+            "total_members": 1,
+            "wins": 0,
+            "losses": 0
+        })
+        self.join_clan(leader_id, clan_id)
+        self.save_data()
         return clan_id
-
+    
     def get_clan_by_id(self, clan_id):
-        self.cursor.execute("SELECT * FROM clans WHERE clan_id = ?", (clan_id,))
-        return self.cursor.fetchone()
-
+        for clan in self.data["clans"]:
+            if clan["clan_id"] == clan_id:
+                return clan
+        return None
+    
     def get_clan_by_name(self, name):
-        self.cursor.execute("SELECT * FROM clans WHERE name = ?", (name,))
-        return self.cursor.fetchone()
-
+        for clan in self.data["clans"]:
+            if clan["name"] == name:
+                return clan
+        return None
+    
     def get_user_clan(self, user_id):
-        self.cursor.execute("SELECT c.* FROM clans c JOIN users u ON u.clan_id = c.clan_id WHERE u.user_id = ?", (user_id,))
-        return self.cursor.fetchone()
-
+        user = self.get_user(user_id)
+        if user and user.get("clan_id"):
+            return self.get_clan_by_id(user["clan_id"])
+        return None
+    
     def join_clan(self, user_id, clan_id):
-        self.cursor.execute("UPDATE users SET clan_id = ?, clan_join_date = ? WHERE user_id = ?", (clan_id, datetime.now().isoformat(), user_id))
-        self.cursor.execute("UPDATE clans SET total_members = (SELECT COUNT(*) FROM users WHERE clan_id = ?) WHERE clan_id = ?", (clan_id, clan_id))
-        self.conn.commit()
-
+        for user in self.data["users"]:
+            if user["user_id"] == user_id:
+                user["clan_id"] = clan_id
+                user["clan_join_date"] = datetime.now().isoformat()
+        for clan in self.data["clans"]:
+            if clan["clan_id"] == clan_id:
+                clan["total_members"] = sum(1 for u in self.data["users"] if u.get("clan_id") == clan_id)
+        self.save_data()
+    
     def leave_clan(self, user_id):
-        self.cursor.execute("SELECT clan_id FROM users WHERE user_id = ?", (user_id,))
-        result = self.cursor.fetchone()
-        if result and result[0]:
-            clan_id = result[0]
-            self.cursor.execute("UPDATE users SET clan_id = NULL WHERE user_id = ?", (user_id,))
-            self.cursor.execute("UPDATE clans SET total_members = (SELECT COUNT(*) FROM users WHERE clan_id = ?) WHERE clan_id = ?", (clan_id, clan_id))
-            self.conn.commit()
-
+        for user in self.data["users"]:
+            if user["user_id"] == user_id:
+                clan_id = user.get("clan_id")
+                user["clan_id"] = None
+                if clan_id:
+                    for clan in self.data["clans"]:
+                        if clan["clan_id"] == clan_id:
+                            clan["total_members"] = sum(1 for u in self.data["users"] if u.get("clan_id") == clan_id)
+        self.save_data()
+    
     def get_clan_members(self, clan_id):
-        self.cursor.execute("SELECT u.user_id, u.username, u.first_name, u.clan_join_date FROM users u WHERE u.clan_id = ? ORDER BY u.clan_join_date", (clan_id,))
-        return self.cursor.fetchall()
-
+        members = []
+        for user in self.data["users"]:
+            if user.get("clan_id") == clan_id:
+                members.append(user)
+        return members
+    
     def add_clan_rating(self, clan_id, rating):
-        self.cursor.execute("UPDATE clans SET rating = rating + ? WHERE clan_id = ?", (rating, clan_id))
-        self.conn.commit()
-
+        for clan in self.data["clans"]:
+            if clan["clan_id"] == clan_id:
+                clan["rating"] = clan.get("rating", 0) + rating
+                self.save_data()
+                return
+    
     def get_top_clans(self, limit=10):
-        self.cursor.execute("UPDATE clans SET total_members = (SELECT COUNT(*) FROM users WHERE users.clan_id = clans.clan_id)")
-        self.conn.commit()
-        self.cursor.execute("SELECT clan_id, name, rating, leader_id, total_members FROM clans ORDER BY rating DESC, total_members DESC LIMIT ?", (limit,))
-        return self.cursor.fetchall()
-
+        clans = sorted(self.data["clans"], key=lambda x: (x.get("rating", 0), x.get("total_members", 0)), reverse=True)
+        return clans[:limit]
+    
     def update_clan_entry_type(self, clan_id, entry_type):
-        self.cursor.execute("UPDATE clans SET entry_type = ? WHERE clan_id = ?", (entry_type, clan_id))
-        self.conn.commit()
-
-    def add_clan_request(self, clan_id, user_id):
-        self.cursor.execute("INSERT INTO clan_requests (clan_id, user_id, date) VALUES (?, ?, ?)", (clan_id, user_id, datetime.now().isoformat()))
-        self.conn.commit()
-
-    def get_clan_requests(self, clan_id):
-        self.cursor.execute("SELECT cr.*, u.username, u.first_name FROM clan_requests cr LEFT JOIN users u ON cr.user_id = u.user_id WHERE cr.clan_id = ? AND cr.status = 'pending'", (clan_id,))
-        return self.cursor.fetchall()
-
-    def update_clan_request(self, request_id, status):
-        self.cursor.execute("UPDATE clan_requests SET status = ? WHERE request_id = ?", (status, request_id))
-        self.conn.commit()
-
-    def declare_war(self, clan1_id, clan2_id, rating_stake):
-        clan1 = self.get_clan_by_id(clan1_id)
-        clan2 = self.get_clan_by_id(clan2_id)
-        if not clan1 or not clan2:
-            return None
-        clan1_chance = 50
-        clan2_chance = 50
-        clan1_bonus = min((clan1[3] // 1000) * 5, 25)
-        clan2_bonus = min((clan2[3] // 1000) * 5, 25)
-        clan1_chance += clan1_bonus - clan2_bonus
-        clan2_chance += clan2_bonus - clan1_bonus
-        clan1_chance = max(25, min(75, clan1_chance))
-        clan2_chance = 100 - clan1_chance
-        winner_id = random.choices([clan1_id, clan2_id], weights=[clan1_chance, clan2_chance])[0]
-        loser_id = clan2_id if winner_id == clan1_id else clan1_id
-        self.add_clan_rating(winner_id, rating_stake)
-        self.add_clan_rating(loser_id, -rating_stake)
-        if winner_id == clan1_id:
-            self.cursor.execute("UPDATE clans SET wins = wins + 1 WHERE clan_id = ?", (clan1_id,))
-            self.cursor.execute("UPDATE clans SET losses = losses + 1 WHERE clan_id = ?", (clan2_id,))
-        else:
-            self.cursor.execute("UPDATE clans SET wins = wins + 1 WHERE clan_id = ?", (clan2_id,))
-            self.cursor.execute("UPDATE clans SET losses = losses + 1 WHERE clan_id = ?", (clan1_id,))
-        self.cursor.execute("INSERT INTO clan_wars (clan1_id, clan2_id, rating_stake, start_date, end_date, status, winner_clan_id) VALUES (?, ?, ?, ?, ?, 'ended', ?)", (clan1_id, clan2_id, rating_stake, datetime.now().isoformat(), datetime.now().isoformat(), winner_id))
-        self.conn.commit()
-        return {'winner_id': winner_id, 'clan1_chance': clan1_chance, 'clan2_chance': clan2_chance, 'clan1_name': clan1[1], 'clan2_name': clan2[1]}
-
-    def add_clan_message(self, from_clan_id, to_clan_id, from_user_id, text):
-        self.cursor.execute("INSERT INTO clan_messages (from_clan_id, to_clan_id, from_user_id, text, date) VALUES (?, ?, ?, ?, ?)", (from_clan_id, to_clan_id, from_user_id, text, datetime.now().isoformat()))
-        self.conn.commit()
-
-    def get_clan_messages(self, clan_id):
-        self.cursor.execute("SELECT cm.*, c.name as from_clan_name, u.first_name as from_user_name FROM clan_messages cm LEFT JOIN clans c ON cm.from_clan_id = c.clan_id LEFT JOIN users u ON cm.from_user_id = u.user_id WHERE cm.to_clan_id = ? ORDER BY cm.date DESC", (clan_id,))
-        return self.cursor.fetchall()
-
-    def add_punishment(self, user_id, chat_id, ptype, reason, duration_minutes, issued_by):
-        end_date = (datetime.now() + timedelta(minutes=duration_minutes)).isoformat() if duration_minutes > 0 else None
-        self.cursor.execute("INSERT INTO punishments (user_id, chat_id, type, reason, start_date, end_date, issued_by) VALUES (?, ?, ?, ?, ?, ?, ?)", (user_id, chat_id, ptype, reason, datetime.now().isoformat(), end_date, issued_by))
-        self.conn.commit()
-
-    def get_active_punishments(self, user_id):
-        self.cursor.execute("SELECT p.*, u.first_name as issued_by_name FROM punishments p LEFT JOIN users u ON p.issued_by = u.user_id WHERE p.user_id = ? AND p.is_active = 1 ORDER BY p.start_date DESC", (user_id,))
-        return self.cursor.fetchall()
-
-    def add_reward(self, user_id, from_user_id, text):
-        self.cursor.execute("INSERT INTO rewards (user_id, from_user_id, text, date) VALUES (?, ?, ?, ?)", (user_id, from_user_id, text, datetime.now().isoformat()))
-        self.conn.commit()
-
-    def get_user_rewards(self, user_id):
-        self.cursor.execute("SELECT r.*, u.username, u.first_name FROM rewards r LEFT JOIN users u ON r.from_user_id = u.user_id WHERE r.user_id = ? AND r.is_active = 1 ORDER BY r.date DESC", (user_id,))
-        return self.cursor.fetchall()
-
+        for clan in self.data["clans"]:
+            if clan["clan_id"] == clan_id:
+                clan["entry_type"] = entry_type
+                self.save_data()
+                return
+    
+    # Черный список
     def add_to_blacklist(self, user_id, reason, added_by):
-        self.cursor.execute("INSERT OR REPLACE INTO bot_blacklist (user_id, reason, date, added_by) VALUES (?, ?, ?, ?)", (user_id, reason, datetime.now().isoformat(), added_by))
-        self.conn.commit()
-
+        self.data["bot_blacklist"].append({
+            "user_id": user_id,
+            "reason": reason,
+            "date": datetime.now().isoformat(),
+            "added_by": added_by
+        })
+        self.save_data()
+    
     def remove_from_blacklist(self, user_id):
-        self.cursor.execute("DELETE FROM bot_blacklist WHERE user_id = ?", (user_id,))
-        self.conn.commit()
-
-    def get_blacklist(self):
-        self.cursor.execute("SELECT bb.*, u.username, u.first_name FROM bot_blacklist bb LEFT JOIN users u ON bb.user_id = u.user_id")
-        return self.cursor.fetchall()
-
+        self.data["bot_blacklist"] = [b for b in self.data["bot_blacklist"] if b["user_id"] != user_id]
+        self.save_data()
+    
     def is_blacklisted(self, user_id):
-        self.cursor.execute("SELECT 1 FROM bot_blacklist WHERE user_id = ?", (user_id,))
-        return self.cursor.fetchone() is not None
-
+        return any(b["user_id"] == user_id for b in self.data["bot_blacklist"])
+    
+    def get_blacklist(self):
+        return self.data["bot_blacklist"]
+    
+    # Жалобы
     def add_report(self, user_id, reported_user_id, reason, message_link=None):
-        self.cursor.execute("INSERT INTO reports (user_id, reported_user_id, reason, date, message_link) VALUES (?, ?, ?, ?, ?)", (user_id, reported_user_id, reason, datetime.now().isoformat(), message_link))
-        self.conn.commit()
-
+        report_id = len(self.data["reports"]) + 1
+        self.data["reports"].append({
+            "report_id": report_id,
+            "user_id": user_id,
+            "reported_user_id": reported_user_id,
+            "reason": reason,
+            "date": datetime.now().isoformat(),
+            "status": "pending",
+            "message_link": message_link
+        })
+        self.save_data()
+        return report_id
+    
     def get_pending_reports(self):
-        self.cursor.execute("SELECT r.*, u1.first_name as reporter_name, u2.first_name as reported_name FROM reports r LEFT JOIN users u1 ON r.user_id = u1.user_id LEFT JOIN users u2 ON r.reported_user_id = u2.user_id WHERE r.status = 'pending' ORDER BY r.date DESC")
-        return self.cursor.fetchall()
-
+        return [r for r in self.data["reports"] if r["status"] == "pending"]
+    
     def update_report_status(self, report_id, status, handled_by):
-        self.cursor.execute("UPDATE reports SET status = ?, handled_by = ? WHERE report_id = ?", (status, handled_by, report_id))
-        self.conn.commit()
-
+        for report in self.data["reports"]:
+            if report["report_id"] == report_id:
+                report["status"] = status
+                report["handled_by"] = handled_by
+                self.save_data()
+                return
+    
+    # Вопросы
     def add_question(self, user_id, text):
-        self.cursor.execute("INSERT INTO questions (user_id, text, date) VALUES (?, ?, ?)", (user_id, text, datetime.now().isoformat()))
-        self.conn.commit()
-
+        question_id = len(self.data["questions"]) + 1
+        self.data["questions"].append({
+            "question_id": question_id,
+            "user_id": user_id,
+            "text": text,
+            "date": datetime.now().isoformat(),
+            "status": "pending"
+        })
+        self.save_data()
+        return question_id
+    
     def get_pending_questions(self):
-        self.cursor.execute("SELECT q.*, u.first_name, u.username FROM questions q LEFT JOIN users u ON q.user_id = u.user_id WHERE q.status = 'pending' ORDER BY q.date")
-        return self.cursor.fetchall()
-
+        return [q for q in self.data["questions"] if q["status"] == "pending"]
+    
     def update_question_status(self, question_id, status, answered_by, answer_text=None):
-        self.cursor.execute("UPDATE questions SET status = ?, answered_by = ?, answer_text = ? WHERE question_id = ?", (status, answered_by, answer_text, question_id))
-        self.conn.commit()
-
+        for question in self.data["questions"]:
+            if question["question_id"] == question_id:
+                question["status"] = status
+                question["answered_by"] = answered_by
+                question["answer_text"] = answer_text
+                self.save_data()
+                return
+    
+    # Чаты
     def add_chat(self, chat_id, title):
-        self.cursor.execute("INSERT OR REPLACE INTO chats (chat_id, title, added_date, is_active) VALUES (?, ?, ?, 1)", (chat_id, title or "Чат", datetime.now().isoformat()))
-        self.conn.commit()
-
+        for chat in self.data["chats"]:
+            if chat["chat_id"] == chat_id:
+                chat["title"] = title
+                self.save_data()
+                return
+        self.data["chats"].append({
+            "chat_id": chat_id,
+            "title": title or "Чат",
+            "welcome_enabled": 0,
+            "welcome_text": None,
+            "antispam_enabled": 0,
+            "antispam_seconds": 5,
+            "antispam_max_messages": 5
+        })
+        self.save_data()
+    
     def get_all_chats(self):
-        self.cursor.execute("SELECT * FROM chats WHERE is_active = 1")
-        return self.cursor.fetchall()
-
-    def add_chat_admin(self, user_id, chat_id, level, added_by):
-        self.cursor.execute("INSERT OR REPLACE INTO chat_admins (user_id, chat_id, level, added_by, added_date) VALUES (?, ?, ?, ?, ?)", (user_id, chat_id, level, added_by, datetime.now().isoformat()))
-        self.conn.commit()
-
-    def get_chat_admin_level(self, user_id, chat_id):
-        self.cursor.execute("SELECT level FROM chat_admins WHERE user_id = ? AND chat_id = ?", (user_id, chat_id))
-        result = self.cursor.fetchone()
-        return result[0] if result else 0
-
-    def get_chat_admins(self, chat_id):
-        self.cursor.execute("SELECT ca.user_id, ca.level, ca.added_by, ca.added_date, u.username, u.first_name FROM chat_admins ca LEFT JOIN users u ON ca.user_id = u.user_id WHERE ca.chat_id = ? ORDER BY ca.level DESC", (chat_id,))
-        return self.cursor.fetchall()
-
-    def update_chat_owner(self, chat_id, new_owner_id):
-        self.cursor.execute("DELETE FROM chat_admins WHERE chat_id = ? AND level = 10 AND user_id != ?", (chat_id, new_owner_id))
-        self.cursor.execute("INSERT OR REPLACE INTO chat_admins (user_id, chat_id, level, added_by, added_date) VALUES (?, ?, 10, ?, ?)", (new_owner_id, chat_id, SUPER_ADMIN_ID, datetime.now().isoformat()))
-        self.conn.commit()
-
-    def set_access_level(self, setting_type, setting_name, min_level):
-        self.cursor.execute("INSERT OR REPLACE INTO access_settings (setting_type, setting_name, min_level) VALUES (?, ?, ?)", (setting_type, setting_name, min_level))
-        self.conn.commit()
-
-    def get_access_level(self, setting_type, setting_name):
-        self.cursor.execute("SELECT min_level FROM access_settings WHERE setting_type = ? AND setting_name = ?", (setting_type, setting_name))
-        result = self.cursor.fetchone()
-        return result[0] if result else 10
-
-    def set_welcome_text(self, chat_id, text):
-        self.cursor.execute("SELECT 1 FROM chats WHERE chat_id = ?", (chat_id,))
-        if not self.cursor.fetchone():
-            self.add_chat(chat_id, "Chat")
-        self.cursor.execute("UPDATE chats SET welcome_text = ?, welcome_enabled = 1 WHERE chat_id = ?", (text, chat_id))
-        self.conn.commit()
-
-    def enable_welcome(self, chat_id, enabled):
-        self.cursor.execute("SELECT 1 FROM chats WHERE chat_id = ?", (chat_id,))
-        if not self.cursor.fetchone():
-            self.add_chat(chat_id, "Chat")
-        self.cursor.execute("UPDATE chats SET welcome_enabled = ? WHERE chat_id = ?", (1 if enabled else 0, chat_id))
-        self.conn.commit()
-
+        return self.data["chats"]
+    
     def get_welcome_settings(self, chat_id):
-        self.cursor.execute("SELECT welcome_enabled, welcome_text FROM chats WHERE chat_id = ?", (chat_id,))
-        return self.cursor.fetchone()
-
-    def enable_antispam(self, chat_id, enabled):
-        self.cursor.execute("SELECT 1 FROM chats WHERE chat_id = ?", (chat_id,))
-        if not self.cursor.fetchone():
-            self.add_chat(chat_id, "Chat")
-        self.cursor.execute("UPDATE chats SET antispam_enabled = ? WHERE chat_id = ?", (1 if enabled else 0, chat_id))
-        self.conn.commit()
-
-    def set_antispam_seconds(self, chat_id, seconds):
-        self.cursor.execute("SELECT 1 FROM chats WHERE chat_id = ?", (chat_id,))
-        if not self.cursor.fetchone():
-            self.add_chat(chat_id, "Chat")
-        self.cursor.execute("UPDATE chats SET antispam_seconds = ? WHERE chat_id = ?", (seconds, chat_id))
-        self.conn.commit()
-
-    def set_antispam_max_messages(self, chat_id, max_messages):
-        self.cursor.execute("SELECT 1 FROM chats WHERE chat_id = ?", (chat_id,))
-        if not self.cursor.fetchone():
-            self.add_chat(chat_id, "Chat")
-        try:
-            self.cursor.execute("UPDATE chats SET antispam_max_messages = ? WHERE chat_id = ?", (max_messages, chat_id))
-            self.conn.commit()
-        except sqlite3.OperationalError:
-            self.cursor.execute("ALTER TABLE chats ADD COLUMN antispam_max_messages INTEGER DEFAULT 5")
-            self.conn.commit()
-            self.cursor.execute("UPDATE chats SET antispam_max_messages = ? WHERE chat_id = ?", (max_messages, chat_id))
-            self.conn.commit()
-
-    def get_antispam_max_messages(self, chat_id):
-        try:
-            self.cursor.execute("SELECT antispam_max_messages FROM chats WHERE chat_id = ?", (chat_id,))
-            result = self.cursor.fetchone()
-            return result[0] if result else 5
-        except sqlite3.OperationalError:
-            return 5
-
+        for chat in self.data["chats"]:
+            if chat["chat_id"] == chat_id:
+                return [chat.get("welcome_enabled", 0), chat.get("welcome_text")]
+        return None
+    
+    def set_welcome_text(self, chat_id, text):
+        self.add_chat(chat_id, "Чат")
+        for chat in self.data["chats"]:
+            if chat["chat_id"] == chat_id:
+                chat["welcome_text"] = text
+                chat["welcome_enabled"] = 1
+                self.save_data()
+                return
+    
+    def enable_welcome(self, chat_id, enabled):
+        self.add_chat(chat_id, "Чат")
+        for chat in self.data["chats"]:
+            if chat["chat_id"] == chat_id:
+                chat["welcome_enabled"] = 1 if enabled else 0
+                self.save_data()
+                return
+    
     def get_antispam_settings(self, chat_id):
-        self.cursor.execute("SELECT antispam_enabled, antispam_seconds FROM chats WHERE chat_id = ?", (chat_id,))
-        return self.cursor.fetchone()
-
-    def add_antispam_message(self, user_id, chat_id):
-        self.cursor.execute("INSERT INTO antispam_messages (user_id, chat_id, message_time) VALUES (?, ?, ?)", (user_id, chat_id, datetime.now().isoformat()))
-        self.cursor.execute("DELETE FROM antispam_messages WHERE message_time < ?", ((datetime.now() - timedelta(minutes=1)).isoformat(),))
-        self.conn.commit()
-
-    def get_recent_messages(self, user_id, chat_id, seconds):
-        self.cursor.execute("SELECT COUNT(*) FROM antispam_messages WHERE user_id = ? AND chat_id = ? AND message_time > ?", (user_id, chat_id, (datetime.now() - timedelta(seconds=seconds)).isoformat()))
-        return self.cursor.fetchone()[0]
-
+        for chat in self.data["chats"]:
+            if chat["chat_id"] == chat_id:
+                return [chat.get("antispam_enabled", 0), chat.get("antispam_seconds", 5)]
+        return None
+    
+    def enable_antispam(self, chat_id, enabled):
+        self.add_chat(chat_id, "Чат")
+        for chat in self.data["chats"]:
+            if chat["chat_id"] == chat_id:
+                chat["antispam_enabled"] = 1 if enabled else 0
+                self.save_data()
+                return
+    
+    def set_antispam_seconds(self, chat_id, seconds):
+        self.add_chat(chat_id, "Чат")
+        for chat in self.data["chats"]:
+            if chat["chat_id"] == chat_id:
+                chat["antispam_seconds"] = seconds
+                self.save_data()
+                return
+    
+    def set_antispam_max_messages(self, chat_id, max_messages):
+        self.add_chat(chat_id, "Чат")
+        for chat in self.data["chats"]:
+            if chat["chat_id"] == chat_id:
+                chat["antispam_max_messages"] = max_messages
+                self.save_data()
+                return
+    
+    def get_antispam_max_messages(self, chat_id):
+        for chat in self.data["chats"]:
+            if chat["chat_id"] == chat_id:
+                return chat.get("antispam_max_messages", 5)
+        return 5
+    
+    # Ранги
+    def get_bot_rank_name(self, level):
+        ranks = {0: "Пользователь", 1: "Младший модератор", 2: "Модератор", 3: "Старший модератор", 4: "Младший админ", 5: "Админ", 6: "Старший админ", 7: "Главный админ", 8: "Заместитель основателя", 9: "Сооснователь", 10: "Основатель бота"}
+        return ranks.get(level, f"Уровень {level}")
+    
+    def get_chat_rank_name(self, level):
+        ranks = {0: "Пользователь", 1: "Младший модератор", 2: "Модератор", 3: "Старший модератор", 4: "Младший админ", 5: "Админ", 6: "Старший админ", 7: "Главный админ", 8: "Заместитель владельца", 9: "Сооснователь", 10: "Владелец"}
+        return ranks.get(level, f"Уровень {level}")
+    
+    def get_agent_rank_name(self, level):
+        ranks = {1: "Младший агент", 2: "Агент", 3: "Старший агент"}
+        return ranks.get(level, f"Уровень {level}")
+    
     def update_bot_rank_name(self, level, name):
-        self.cursor.execute("INSERT OR REPLACE INTO bot_rank_names (level, name) VALUES (?, ?)", (level, name))
-        self.conn.commit()
-
+        self.data.setdefault("bot_rank_names", {})[str(level)] = name
+        self.save_data()
+    
     def update_agent_rank_name(self, level, name):
-        self.cursor.execute("INSERT OR REPLACE INTO agent_rank_names (level, name) VALUES (?, ?)", (level, name))
-        self.conn.commit()
-
+        self.data.setdefault("agent_rank_names", {})[str(level)] = name
+        self.save_data()
+    
     def update_chat_rank_name(self, level, name):
-        self.cursor.execute("INSERT OR REPLACE INTO chat_rank_names (level, name) VALUES (?, ?)", (level, name))
-        self.conn.commit()
-
-    def get_all_users(self):
-        self.cursor.execute("SELECT user_id FROM users")
-        return self.cursor.fetchall()
-
+        self.data.setdefault("chat_rank_names", {})[str(level)] = name
+        self.save_data()
+    
+    # Доступ
+    def set_access_level(self, setting_type, setting_name, min_level):
+        self.data.setdefault("access_settings", []).append({
+            "type": setting_type,
+            "name": setting_name,
+            "min_level": min_level
+        })
+        self.save_data()
+    
+    def get_access_level(self, setting_type, setting_name):
+        for setting in self.data.get("access_settings", []):
+            if setting["type"] == setting_type and setting["name"] == setting_name:
+                return setting["min_level"]
+        return 10
+    
+    # Статистика
     def get_total_stats(self):
-        self.cursor.execute("SELECT COUNT(*) FROM users")
-        total_users = self.cursor.fetchone()[0]
-        self.cursor.execute("SELECT COUNT(*) FROM chats WHERE is_active = 1")
-        total_chats = self.cursor.fetchone()[0]
-        self.cursor.execute("SELECT COUNT(*) FROM clans")
-        total_clans = self.cursor.fetchone()[0]
-        self.cursor.execute("SELECT COUNT(*) FROM bot_admins")
-        total_admins = self.cursor.fetchone()[0]
-        self.cursor.execute("SELECT COUNT(*) FROM support_agents")
-        total_agents = self.cursor.fetchone()[0]
-        self.cursor.execute("SELECT COUNT(*) FROM bot_blacklist")
-        total_blacklist = self.cursor.fetchone()[0]
-        self.cursor.execute("SELECT COUNT(*) FROM chat_messages")
-        total_messages = self.cursor.fetchone()[0]
-        return total_users, total_chats, total_clans, total_admins, total_agents, total_blacklist, total_messages
-
+        return (
+            len(self.data["users"]),
+            len(self.data["chats"]),
+            len(self.data["clans"]),
+            len(self.data["bot_admins"]),
+            len(self.data["support_agents"]),
+            len(self.data["bot_blacklist"]),
+            len(self.data.get("chat_messages", []))
+        )
+    
     def add_message(self, user_id, chat_id):
-        self.cursor.execute("INSERT INTO chat_messages (user_id, chat_id, message_time) VALUES (?, ?, ?)", (user_id, chat_id, datetime.now().isoformat()))
-        self.conn.commit()
+        self.data.setdefault("chat_messages", []).append({
+            "user_id": user_id,
+            "chat_id": chat_id,
+            "message_time": datetime.now().isoformat()
+        })
+        # Не сохраняем каждое сообщение для скорости
     
     def get_top_messages(self, chat_id, period='all'):
+        messages = self.data.get("chat_messages", [])
         if period == 'day':
-            time_filter = (datetime.now() - timedelta(days=1)).isoformat()
+            cutoff = (datetime.now() - timedelta(days=1)).isoformat()
         elif period == 'week':
-            time_filter = (datetime.now() - timedelta(days=7)).isoformat()
+            cutoff = (datetime.now() - timedelta(days=7)).isoformat()
         else:
-            time_filter = '2000-01-01'
-        self.cursor.execute("""
-            SELECT cm.user_id, u.first_name, COUNT(*) as msg_count 
-            FROM chat_messages cm 
-            LEFT JOIN users u ON cm.user_id = u.user_id 
-            WHERE cm.chat_id = ? AND cm.message_time > ? 
-            GROUP BY cm.user_id 
-            ORDER BY msg_count DESC 
-            LIMIT 10
-        """, (chat_id, time_filter))
-        return self.cursor.fetchall()
-
+            cutoff = '2000-01-01'
+        
+        filtered = [m for m in messages if m["chat_id"] == chat_id and m["message_time"] > cutoff]
+        count = {}
+        for m in filtered:
+            count[m["user_id"]] = count.get(m["user_id"], 0) + 1
+        
+        top = sorted(count.items(), key=lambda x: x[1], reverse=True)[:10]
+        result = []
+        for user_id, msg_count in top:
+            user = self.get_user(user_id)
+            result.append((user_id, user["first_name"] if user else "Пользователь", msg_count))
+        return result
+    
+    # Награды
+    def add_reward(self, user_id, from_user_id, text):
+        self.data.setdefault("rewards", []).append({
+            "user_id": user_id,
+            "from_user_id": from_user_id,
+            "text": text,
+            "date": datetime.now().isoformat()
+        })
+        self.save_data()
+    
+    def get_user_rewards(self, user_id):
+        rewards = []
+        for reward in self.data.get("rewards", []):
+            if reward["user_id"] == user_id:
+                from_user = self.get_user(reward["from_user_id"])
+                rewards.append({
+                    "text": reward["text"],
+                    "from_name": from_user["first_name"] if from_user else "Пользователь",
+                    "date": reward["date"]
+                })
+        return rewards
+    
+    # Бонус клана
     def can_use_clan_bonus(self, user_id, clan_id):
         today = datetime.now().strftime("%Y-%m-%d")
-        self.cursor.execute("SELECT 1 FROM clan_bonus_usage WHERE clan_id = ? AND user_id = ? AND usage_date = ?", (clan_id, user_id, today))
-        return self.cursor.fetchone() is None
+        for usage in self.data.get("clan_bonus_usage", []):
+            if usage["clan_id"] == clan_id and usage["user_id"] == user_id and usage["date"] == today:
+                return False
+        return True
     
     def use_clan_bonus(self, user_id, clan_id):
         today = datetime.now().strftime("%Y-%m-%d")
-        self.cursor.execute("INSERT OR IGNORE INTO clan_bonus_usage (clan_id, user_id, usage_date) VALUES (?, ?, ?)", (clan_id, user_id, today))
-        self.conn.commit()
+        self.data.setdefault("clan_bonus_usage", []).append({
+            "clan_id": clan_id,
+            "user_id": user_id,
+            "date": today
+        })
+        self.save_data()
+    
+    def get_all_users(self):
+        return [user["user_id"] for user in self.data["users"]]
 
-    def close(self):
-        self.conn.close()
 
-
+# Создание экземпляра
 db = Database()
-backup_manager = BackupManager()
-backup_manager.restore(db)
 
 def check_bot_access(user_id, function):
     if user_id == SUPER_ADMIN_ID:
@@ -632,7 +594,7 @@ def check_bot_access(user_id, function):
 def check_chat_access(user_id, chat_id, function):
     if user_id == SUPER_ADMIN_ID:
         return True
-    user_level = db.get_chat_admin_level(user_id, chat_id)
+    user_level = db.get_bot_admin_level(user_id)
     if user_level >= 10:
         return True
     required_level = db.get_access_level('chat', function)
@@ -784,8 +746,8 @@ class Keyboards:
     @staticmethod
     def help_menu():
         keyboard = [
-            [InlineKeyboardButton("❗️ Жалоба", callback_data="report")],
-            [InlineKeyboardButton("❓ Вопрос", callback_data="question")],
+            [InlineKeyboardButton("❗️ Жалоба", callback_data="report_btn")],
+            [InlineKeyboardButton("❓ Вопрос", callback_data="question_btn")],
             [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_start")]
         ]
         return InlineKeyboardMarkup(keyboard)
@@ -964,12 +926,11 @@ class Keyboards:
     @staticmethod
     def access_levels():
         keyboard = [
-            [InlineKeyboardButton("0", callback_data="set_level_0"), InlineKeyboardButton("1", callback_data="set_level_1")],
-            [InlineKeyboardButton("2", callback_data="set_level_2"), InlineKeyboardButton("3", callback_data="set_level_3")],
-            [InlineKeyboardButton("4", callback_data="set_level_4"), InlineKeyboardButton("5", callback_data="set_level_5")],
-            [InlineKeyboardButton("6", callback_data="set_level_6"), InlineKeyboardButton("7", callback_data="set_level_7")],
-            [InlineKeyboardButton("8", callback_data="set_level_8"), InlineKeyboardButton("9", callback_data="set_level_9")],
-            [InlineKeyboardButton("10", callback_data="set_level_10")],
+            [InlineKeyboardButton("1", callback_data="set_level_1"), InlineKeyboardButton("2", callback_data="set_level_2")],
+            [InlineKeyboardButton("3", callback_data="set_level_3"), InlineKeyboardButton("4", callback_data="set_level_4")],
+            [InlineKeyboardButton("5", callback_data="set_level_5"), InlineKeyboardButton("6", callback_data="set_level_6")],
+            [InlineKeyboardButton("7", callback_data="set_level_7"), InlineKeyboardButton("8", callback_data="set_level_8")],
+            [InlineKeyboardButton("9", callback_data="set_level_9"), InlineKeyboardButton("10", callback_data="set_level_10")],
             [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_start")]
         ]
         return InlineKeyboardMarkup(keyboard)
@@ -978,7 +939,7 @@ class Keyboards:
     def rank_levels(rank_type):
         keyboard = []
         max_level = 10 if rank_type in ['bot', 'chat'] else 3
-        for i in range(0, max_level + 1, 2):
+        for i in range(1, max_level + 1, 2):
             row = [InlineKeyboardButton(str(i), callback_data=f"rename_level_{i}")]
             if i + 1 <= max_level:
                 row.append(InlineKeyboardButton(str(i+1), callback_data=f"rename_level_{i+1}"))
@@ -1303,7 +1264,7 @@ class Handlers:
     @staticmethod
     async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not update.message.reply_to_message:
-            await update.message.reply_text("❌ Ответьте на сообщение!")
+            await update.message.reply_text("❌ Ответьте на сообщение нарушителя!")
             return
         if not context.args:
             await update.message.reply_text("❌ /report <причина>")
@@ -1323,20 +1284,28 @@ class Handlers:
         except:
             message_link = "Недоступна"
         
-        db.add_report(update.effective_user.id, target.id, reason, message_link)
-        await update.message.reply_text("✅ Жалоба отправлена!")
+        report_id = db.add_report(update.effective_user.id, target.id, reason, message_link)
+        
+        await update.message.reply_text(f"✅ Жалоба отправлена!\n\n👤 Нарушитель: {target.first_name}\n🆔 ID: {target.id}\n📝 Причина: {reason}\n🔗 Ссылка: {message_link}\n🕐 Время: {datetime.now().strftime('%H:%M:%S')}")
         
         admins = db.get_all_bot_admins()
         for admin in admins:
             try:
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✅ Принять", callback_data=f"accept_report_{report_id}"),
+                     InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_report_btn_{report_id}")]
+                ])
                 await context.bot.send_message(
                     admin[0],
                     f"❗️ Новая жалоба!\n\n"
                     f"👤 От: {update.effective_user.first_name}\n"
-                    f"🎯 На: {target.first_name}\n"
+                    f"🆔 ID отправителя: {update.effective_user.id}\n"
+                    f"🎯 Нарушитель: {target.first_name}\n"
+                    f"🆔 ID нарушителя: {target.id}\n"
                     f"📝 Причина: {reason}\n"
-                    f"🔗 Ссылка: {message_link}\n\n"
-                    f"Ответьте: /reports"
+                    f"🔗 Ссылка: {message_link}\n"
+                    f"🕐 Время: {datetime.now().strftime('%H:%M:%S')}",
+                    reply_markup=keyboard
                 )
             except:
                 pass
@@ -1663,7 +1632,7 @@ class Handlers:
                     text += f"🔗 Ссылка: {report[9]}\n"
                 text += f"━━━━━━━━━━━━━━━━\n"
             
-            text += "\n/answer_report <ID> <ответ> или /reject_report <ID>"
+            text += "\nИспользуйте кнопки в личных сообщениях!"
             await update.message.reply_text(text)
         
         elif is_agent:
@@ -1676,7 +1645,7 @@ class Handlers:
             for question in questions:
                 text += f"🆔 #{question[0]}\n👤 От: {question[6]}\n💬 Вопрос: {question[2]}\n━━━━━━━━━━━━━━━━\n"
             
-            text += "\n/answer_question <ID> <ответ> или /reject_question <ID>"
+            text += "\nИспользуйте кнопки в личных сообщениях!"
             await update.message.reply_text(text)
 
     @staticmethod
@@ -1962,15 +1931,20 @@ class Handlers:
             return
         
         question = " ".join(context.args)
-        db.add_question(user.id, question)
+        question_id = db.add_question(user.id, question)
         await update.message.reply_text("✅ Вопрос отправлен агентам!")
         
         agents = db.get_all_agents()
         for agent in agents:
             try:
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✅ Принять", callback_data=f"accept_question_{question_id}"),
+                     InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_question_btn_{question_id}")]
+                ])
                 await context.bot.send_message(
                     agent[0],
-                    f"❓ Новый вопрос!\n👤 От: {user.first_name}\n💬 Вопрос: {question}\n\nОтветьте: /reports"
+                    f"❓ Новый вопрос!\n👤 От: {user.first_name}\n🆔 ID: {user.id}\n💬 Вопрос: {question}\n🕐 Время: {datetime.now().strftime('%H:%M:%S')}",
+                    reply_markup=keyboard
                 )
             except:
                 pass
@@ -2531,23 +2505,44 @@ class Handlers:
         
         # Помощь
         elif data == "help_menu":
-            text = """📋 Справка по командам:
-━━━━━━━━━━━━━━━━
-
-/start - Главное меню
-/profile - Профиль
-/ping - Проверить пинг
-/id - Показать ID
-
-/clan - Меню клана
-/clan_top - Топ кланов
-/clan_bonus - Бонус клана
-
-/ban - Забанить
-/mute - Замутить
-/warn - Предупредить
-/report - Отправить жалобу"""
-            await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
+            await query.message.edit_text("🆘 Помощь:\n\nВыберите действие:", reply_markup=Keyboards.help_menu())
+        
+        elif data == "report_btn":
+            if update.effective_chat.type == 'private':
+                await query.message.reply_text("❌ Эта функция работает только в группе! Ответьте на сообщение нарушителя и напишите /report <причина>")
+            else:
+                await query.message.reply_text("📝 Чтобы отправить жалобу:\n1. Ответьте на сообщение нарушителя\n2. Напишите /report <причина>")
+        
+        elif data == "question_btn":
+            context.user_data['asking_question'] = True
+            await query.message.reply_text("❓ Задайте ваш вопрос:")
+            return WAITING_FOR_QUESTION
+        
+        # Кнопки принятия/отклонения жалоб
+        elif data.startswith("accept_report_"):
+            report_id = int(data.replace("accept_report_", ""))
+            context.user_data['answering_report'] = report_id
+            await query.message.reply_text("Отправьте ответ на жалобу:")
+            return WAITING_FOR_REPORT_ANSWER
+        
+        elif data.startswith("reject_report_btn_"):
+            report_id = int(data.replace("reject_report_btn_", ""))
+            db.update_report_status(report_id, 'rejected', user.id)
+            await query.message.edit_text(f"✅ Жалоба #{report_id} отклонена!")
+            return ConversationHandler.END
+        
+        # Кнопки принятия/отклонения вопросов
+        elif data.startswith("accept_question_"):
+            question_id = int(data.replace("accept_question_", ""))
+            context.user_data['answering_question'] = question_id
+            await query.message.reply_text("Отправьте ответ на вопрос:")
+            return WAITING_FOR_QUESTION_ANSWER
+        
+        elif data.startswith("reject_question_btn_"):
+            question_id = int(data.replace("reject_question_btn_", ""))
+            db.update_question_status(question_id, 'rejected', user.id)
+            await query.message.edit_text(f"✅ Вопрос #{question_id} отклонен!")
+            return ConversationHandler.END
         
         elif data == "commands_menu":
             user_id = user.id
@@ -2676,6 +2671,62 @@ class Handlers:
             db.set_welcome_text(chat_id, text)
             await update.message.reply_text(f"✅ Приветствие установлено!")
             context.user_data.pop('editing_welcome', None)
+            return ConversationHandler.END
+        
+        if 'asking_question' in context.user_data:
+            question = text
+            question_id = db.add_question(user.id, question)
+            await update.message.reply_text("✅ Вопрос отправлен агентам!")
+            context.user_data.pop('asking_question', None)
+            
+            agents = db.get_all_agents()
+            for agent in agents:
+                try:
+                    keyboard = InlineKeyboardMarkup([
+                        [InlineKeyboardButton("✅ Принять", callback_data=f"accept_question_{question_id}"),
+                         InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_question_btn_{question_id}")]
+                    ])
+                    await context.bot.send_message(
+                        agent[0],
+                        f"❓ Новый вопрос!\n👤 От: {user.first_name}\n🆔 ID: {user.id}\n💬 Вопрос: {question}\n🕐 Время: {datetime.now().strftime('%H:%M:%S')}",
+                        reply_markup=keyboard
+                    )
+                except:
+                    pass
+            return ConversationHandler.END
+        
+        if 'answering_report' in context.user_data:
+            report_id = context.user_data['answering_report']
+            answer = text
+            db.update_report_status(report_id, 'answered', user.id)
+            
+            db.cursor.execute("SELECT user_id FROM reports WHERE report_id = ?", (report_id,))
+            result = db.cursor.fetchone()
+            if result:
+                try:
+                    await context.bot.send_message(result[0], f"✅ Ваша жалоба рассмотрена!\n📝 Ответ: {answer}")
+                except:
+                    pass
+            
+            await update.message.reply_text(f"✅ Ответ отправлен!")
+            context.user_data.pop('answering_report', None)
+            return ConversationHandler.END
+        
+        if 'answering_question' in context.user_data:
+            question_id = context.user_data['answering_question']
+            answer = text
+            db.update_question_status(question_id, 'answered', user.id, answer)
+            
+            db.cursor.execute("SELECT user_id FROM questions WHERE question_id = ?", (question_id,))
+            result = db.cursor.fetchone()
+            if result:
+                try:
+                    await context.bot.send_message(result[0], f"❓ Ответ на ваш вопрос:\n\n{answer}")
+                except:
+                    pass
+            
+            await update.message.reply_text(f"✅ Ответ отправлен!")
+            context.user_data.pop('answering_question', None)
             return ConversationHandler.END
         
         if 'giving_reward' in context.user_data:
@@ -3067,6 +3118,12 @@ def main():
             CallbackQueryHandler(Handlers.button_handler, pattern="^transfer_clan$"),
             CallbackQueryHandler(Handlers.button_handler, pattern="^delete_clan$"),
             CallbackQueryHandler(Handlers.button_handler, pattern="^leave_clan_btn$"),
+            CallbackQueryHandler(Handlers.button_handler, pattern="^report_btn$"),
+            CallbackQueryHandler(Handlers.button_handler, pattern="^question_btn$"),
+            CallbackQueryHandler(Handlers.button_handler, pattern="^accept_report_"),
+            CallbackQueryHandler(Handlers.button_handler, pattern="^reject_report_btn_"),
+            CallbackQueryHandler(Handlers.button_handler, pattern="^accept_question_"),
+            CallbackQueryHandler(Handlers.button_handler, pattern="^reject_question_btn_"),
             CallbackQueryHandler(Handlers.button_handler, pattern="^bot_access_"),
             CallbackQueryHandler(Handlers.button_handler, pattern="^agent_access_"),
             CallbackQueryHandler(Handlers.button_handler, pattern="^chat_access_"),
@@ -3092,6 +3149,9 @@ def main():
             WAITING_FOR_REWARD_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, Handlers.text_handler)],
             WAITING_FOR_TRANSFER_CLAN: [MessageHandler(filters.TEXT & ~filters.COMMAND, Handlers.text_handler)],
             WAITING_FOR_RENAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, Handlers.text_handler)],
+            WAITING_FOR_QUESTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, Handlers.text_handler)],
+            WAITING_FOR_REPORT_ANSWER: [MessageHandler(filters.TEXT & ~filters.COMMAND, Handlers.text_handler)],
+            WAITING_FOR_QUESTION_ANSWER: [MessageHandler(filters.TEXT & ~filters.COMMAND, Handlers.text_handler)],
         },
         fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)]
     )
