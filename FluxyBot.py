@@ -1429,8 +1429,24 @@ def main():
         
         if data == "back_to_start":
             bot_rank = db.get_bot_admin_level(user.id)
-            if bot_rank >= 1:
+            is_owner = False
+            
+            if update.effective_chat.type != 'private':
+                try:
+                    admins = await context.bot.get_chat_administrators(chat_id)
+                    for a in admins:
+                        if a.status == 'creator' and a.user.id == user.id:
+                            is_owner = True
+                            break
+                except:
+                    pass
+            
+            if bot_rank >= 1 and is_owner:
+                await query.message.edit_text("Главное меню Fluxy", reply_markup=Keyboards.main_menu_with_both())
+            elif bot_rank >= 1:
                 await query.message.edit_text("Главное меню Fluxy", reply_markup=Keyboards.main_menu_with_admin())
+            elif is_owner:
+                await query.message.edit_text("Главное меню Fluxy", reply_markup=Keyboards.main_menu_with_chat_admin())
             else:
                 await query.message.edit_text("Главное меню Fluxy", reply_markup=Keyboards.main_menu())
             return ConversationHandler.END
