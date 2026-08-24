@@ -213,15 +213,12 @@ class Database:
         for u in self.data["users"]:
             if u["user_id"] == user_id and u.get("clan_id") is not None:
                 return False
-        
         for u in self.data["users"]:
             if u["user_id"] == user_id:
                 u["clan_id"] = clan_id
-        
         for c in self.data["clans"]:
             if c["clan_id"] == clan_id:
                 c["total_members"] = sum(1 for u in self.data["users"] if u.get("clan_id") == clan_id)
-        
         self.save_data()
         return True
     
@@ -427,7 +424,7 @@ class Database:
     
     def get_rank_access(self, rank_type, level):
         result = []
-        for s in self.data["access_settings"]:
+        for s in self.data.get("access_settings", []):
             if s.get("type") == rank_type and s.get("min_level") == level:
                 result.append(s.get("name"))
         return result
@@ -440,9 +437,11 @@ class Database:
                 else:
                     s["min_level"] = level
                 self.save_data()
+                print(f"✅ Доступ обновлен: {rank_type}/{function} -> {s['min_level']}")
                 return
         self.data["access_settings"].append({"type": rank_type, "name": function, "min_level": level})
         self.save_data()
+        print(f"✅ Доступ добавлен: {rank_type}/{function} -> {level}")
     
     def get_total_stats(self):
         return (len(self.data["users"]), len(self.data["chats"]), len(self.data["clans"]), len(self.data["bot_admins"]), len(self.data["support_agents"]), len(self.data["bot_blacklist"]), len(self.data.get("chat_messages", [])))
@@ -499,7 +498,9 @@ db = Database()
 def check_bot_access(user_id, function):
     if user_id == SUPER_ADMIN_ID:
         return True
-    return function in db.get_rank_access('bot', db.get_bot_admin_level(user_id))
+    user_level = db.get_bot_admin_level(user_id)
+    access = db.get_rank_access('bot', user_level)
+    return function in access
 
 def check_chat_access(user_id, chat_id, function):
     if user_id == SUPER_ADMIN_ID:
@@ -507,12 +508,15 @@ def check_chat_access(user_id, chat_id, function):
     level = db.get_bot_admin_level(user_id)
     if level >= 10:
         return True
-    return function in db.get_rank_access('chat', level)
+    access = db.get_rank_access('chat', level)
+    return function in access
 
 def check_agent_access(user_id, function):
     if user_id == SUPER_ADMIN_ID:
         return True
-    return function in db.get_rank_access('agent', db.get_agent_level(user_id))
+    user_level = db.get_agent_level(user_id)
+    access = db.get_rank_access('agent', user_level)
+    return function in access
     
 #==================#
 #2 ЧАСТЬ | Keyboards #
