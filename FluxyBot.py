@@ -1457,7 +1457,6 @@ def main():
             if ws and ws[0] == 1:
                 text = ws[1] or "Добро пожаловать!"
                 text = text.replace("{name}", m.first_name or "Гость")
-                text = text.replace("{chat}", update.effective_chat.title or "Чат")
                 await update.message.reply_text(text)
     
     async def antispam_handler(update, context):
@@ -1471,7 +1470,7 @@ def main():
             await update.message.reply_text("❌ Только Основатель!")
             return
         db.save_data()
-        await update.message.reply_text("✅ Данные сохранены!")
+        await update.message.reply_text("✅ Сохранено!")
     
     async def button_callback(update, context):
         query = update.callback_query
@@ -1483,7 +1482,6 @@ def main():
         if data == "back_to_start":
             bot_rank = db.get_bot_admin_level(user.id)
             is_owner = False
-            
             if update.effective_chat.type != 'private':
                 try:
                     admins = await context.bot.get_chat_administrators(chat_id)
@@ -1493,7 +1491,6 @@ def main():
                             break
                 except:
                     pass
-            
             if bot_rank >= 10:
                 await query.message.edit_text("Главное меню Fluxy", reply_markup=Keyboards.main_menu_with_both())
             elif bot_rank >= 1 and is_owner:
@@ -1508,157 +1505,97 @@ def main():
         
         elif data == "back_to_profile":
             clan = db.get_user_clan(user.id)
-            text = f"""👤 Профиль
-━━━━━━━━━━━━━━━━
-
-🆔 ID: {user.id}
-🎖️ Ранг: {db.get_bot_rank_name(db.get_bot_admin_level(user.id))}
-🛡️ Клан: {clan['name'] if clan else 'Нет'}
-🏆 Рейтинг: {clan['rating'] if clan else 0}"""
+            text = f"👤 Профиль\n\n🆔 {user.id}\n🎖️ {db.get_bot_rank_name(db.get_bot_admin_level(user.id))}\n🛡️ {clan['name'] if clan else 'Нет'}"
             await query.message.edit_text(text, reply_markup=Keyboards.profile_menu())
             return ConversationHandler.END
         
         elif data == "back_to_clan":
             clan = db.get_user_clan(user.id)
             if clan:
-                clan['total_members'] = len(db.get_clan_members(clan['clan_id']))
                 is_leader = clan['leader_id'] == user.id
-                text = f"""🛡 Ваш клан
-━━━━━━━━━━━━━━━━
-
-🆔 ID: {clan['clan_id']}
-🛡 Название: {clan['name']}
-🏆 Рейтинг: {clan['rating']}
-👥 Участников: {clan['total_members']}
-🏅 Побед: {clan.get('wins', 0)}
-💀 Поражений: {clan.get('losses', 0)}"""
+                text = f"🛡 {clan['name']}\n🏆 {clan['rating']}\n👥 {len(db.get_clan_members(clan['clan_id']))}"
                 await query.message.edit_text(text, reply_markup=Keyboards.my_clan_menu(is_leader))
             return ConversationHandler.END
         
         elif data == "profile":
             clan = db.get_user_clan(user.id)
-            text = f"""👤 Профиль
-━━━━━━━━━━━━━━━━
-
-🆔 ID: {user.id}
-🎖️ Ранг: {db.get_bot_rank_name(db.get_bot_admin_level(user.id))}
-🛡️ Клан: {clan['name'] if clan else 'Нет'}
-🏆 Рейтинг: {clan['rating'] if clan else 0}"""
+            text = f"👤 Профиль\n\n🆔 {user.id}\n🎖️ {db.get_bot_rank_name(db.get_bot_admin_level(user.id))}\n🛡️ {clan['name'] if clan else 'Нет'}"
             await query.message.edit_text(text, reply_markup=Keyboards.profile_menu())
         
         elif data == "my_rewards":
             rewards = db.get_user_rewards(user.id)
-            text = "🏆 Ваши награды:\n━━━━━━━━━━━━━━━━\n\n"
+            text = "🏆 Награды:\n\n"
             if not rewards:
                 text += "Нет наград"
             for r in rewards:
-                text += f"🎁 {r['text']}\n👤 От: {r['from_name']}\n━━━━━━━━━━━━━━━━\n"
+                text += f"🎁 {r['text']}\n"
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_profile())
         
         elif data.startswith("user_rewards_"):
             target_id = int(data.replace("user_rewards_", ""))
             rewards = db.get_user_rewards(target_id)
-            text = "🏆 Награды:\n━━━━━━━━━━━━━━━━\n\n"
+            text = "🏆 Награды:\n\n"
             if not rewards:
                 text += "Нет наград"
             for r in rewards:
-                text += f"🎁 {r['text']}\n👤 От: {r['from_name']}\n━━━━━━━━━━━━━━━━\n"
+                text += f"🎁 {r['text']}\n"
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
         elif data.startswith("give_reward_user_"):
             target_id = int(data.replace("give_reward_user_", ""))
-            context.user_data['giving_reward'] = True
             context.user_data['reward_target'] = target_id
+            print(f"Награда для: {target_id}")
             await query.message.reply_text("Отправьте текст награды:")
             return WAITING_FOR_REWARD_TEXT
         
         elif data == "chat_stats":
-            await query.message.edit_text("📊 Статистика чата\n\nВыберите период:", reply_markup=Keyboards.chat_stats_menu())
+            await query.message.edit_text("📊 Статистика:", reply_markup=Keyboards.chat_stats_menu())
         
         elif data == "top_day":
             top = db.get_top_messages(chat_id, 'day')
-            text = "📊 Топ дня:\n━━━━━━━━━━━━━━━━\n\n"
-            if not top:
-                text += "Нет данных"
+            text = "📊 Топ дня:\n\n"
             for i, (uid, name, cnt) in enumerate(top, 1):
-                text += f"{i}. {name}\n💬 {cnt}\n━━━━━━━━━━━━━━━━\n"
+                text += f"{i}. {name} - {cnt}\n"
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
         elif data == "top_week":
             top = db.get_top_messages(chat_id, 'week')
-            text = "📊 Топ недели:\n━━━━━━━━━━━━━━━━\n\n"
-            if not top:
-                text += "Нет данных"
+            text = "📊 Топ недели:\n\n"
             for i, (uid, name, cnt) in enumerate(top, 1):
-                text += f"{i}. {name}\n💬 {cnt}\n━━━━━━━━━━━━━━━━\n"
+                text += f"{i}. {name} - {cnt}\n"
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
         elif data == "top_all":
             top = db.get_top_messages(chat_id, 'all')
-            text = "📊 Весь топ:\n━━━━━━━━━━━━━━━━\n\n"
-            if not top:
-                text += "Нет данных"
+            text = "📊 Весь топ:\n\n"
             for i, (uid, name, cnt) in enumerate(top, 1):
-                text += f"{i}. {name}\n💬 {cnt}\n━━━━━━━━━━━━━━━━\n"
+                text += f"{i}. {name} - {cnt}\n"
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
         elif data == "clan_menu":
             clan = db.get_user_clan(user.id)
             if clan:
-                clan['total_members'] = len(db.get_clan_members(clan['clan_id']))
                 is_leader = clan['leader_id'] == user.id
-                text = f"""🛡 Ваш клан
-━━━━━━━━━━━━━━━━
-
-🆔 ID: {clan['clan_id']}
-🛡 Название: {clan['name']}
-🏆 Рейтинг: {clan['rating']}
-👥 Участников: {clan['total_members']}
-🏅 Побед: {clan.get('wins', 0)}
-💀 Поражений: {clan.get('losses', 0)}"""
+                text = f"🛡 {clan['name']}\n🏆 {clan['rating']}\n👥 {len(db.get_clan_members(clan['clan_id']))}"
                 await query.message.edit_text(text, reply_markup=Keyboards.my_clan_menu(is_leader))
             else:
-                await query.message.edit_text("🛡 Кланы\n\nВыберите действие:", reply_markup=Keyboards.clan_menu())
+                await query.message.edit_text("🛡 Кланы:", reply_markup=Keyboards.clan_menu())
         
         elif data == "clan_settings":
-            clan = db.get_user_clan(user.id)
-            if clan and clan['leader_id'] == user.id:
-                await query.message.edit_text("⚙️ Настройки клана:", reply_markup=Keyboards.clan_settings_menu())
+            await query.message.edit_text("⚙️ Настройки:", reply_markup=Keyboards.clan_settings_menu())
         
         elif data == "clan_members":
             clan = db.get_user_clan(user.id)
             if clan:
                 is_leader = clan['leader_id'] == user.id
                 members = db.get_clan_members(clan['clan_id'])
-                text = f"👥 Участники клана «{clan['name']}»:\n━━━━━━━━━━━━━━━━\n\n"
+                text = "👥 Участники:\n\n"
                 for m in members:
-                    text += f"👤 {m['first_name']}\n🆔 ID: {m['user_id']}\n━━━━━━━━━━━━━━━━\n"
+                    text += f"👤 {m['first_name']} - {m['user_id']}\n"
                 await query.message.edit_text(text, reply_markup=Keyboards.clan_members_menu(is_leader))
         
-        elif data == "clan_messages":
-            clan = db.get_user_clan(user.id)
-            if clan:
-                messages = db.get_clan_messages(clan['clan_id'])
-                text = f"✉️ Сообщения клана:\n━━━━━━━━━━━━━━━━\n\n"
-                if not messages:
-                    text += "Нет сообщений"
-                for msg in messages:
-                    text += f"💬 {msg['text']}\n━━━━━━━━━━━━━━━━\n"
-                await query.message.edit_text(text, reply_markup=Keyboards.back_to_clan())
-        
-        elif data == "clan_requests":
-            clan = db.get_user_clan(user.id)
-            if clan:
-                requests = db.get_clan_requests(clan['clan_id'])
-                text = f"📋 Заявки:\n━━━━━━━━━━━━━━━━\n\n"
-                if not requests:
-                    text += "Нет заявок"
-                for r in requests:
-                    text += f"🆔 {r['request_id']}\n👤 {r['user_id']}\n━━━━━━━━━━━━━━━━\n"
-                await query.message.edit_text(text, reply_markup=Keyboards.back_to_clan())
-        
         elif data == "clan_entry":
-            await query.message.edit_text("🔒 Тип входа:", reply_markup=Keyboards.clan_entry_menu())
+            await query.message.edit_text("🔒 Вход:", reply_markup=Keyboards.clan_entry_menu())
         
         elif data == "entry_open":
             clan = db.get_user_clan(user.id)
@@ -1680,19 +1617,14 @@ def main():
             await query.message.reply_text("ID врага:")
             return WAITING_FOR_WAR_CLAN_ID
         
-        elif data == "message_clan":
-            context.user_data['clan_msg_to'] = True
-            await query.message.reply_text("ID клана:")
-            return WAITING_FOR_CLAN_MSG_CLAN
-        
         elif data == "invite_member":
             context.user_data['waiting_invite'] = True
-            await query.message.reply_text("ID пользователя:")
+            await query.message.reply_text("ID:")
             return WAITING_FOR_INVITE_USER
         
         elif data == "transfer_clan":
             context.user_data['transfer_clan'] = True
-            await query.message.reply_text("ID нового лидера:")
+            await query.message.reply_text("ID лидера:")
             return WAITING_FOR_TRANSFER_CLAN
         
         elif data == "delete_clan":
@@ -1706,12 +1638,8 @@ def main():
                 await query.message.edit_text("✅ Удален!", reply_markup=Keyboards.clan_menu())
         
         elif data == "leave_clan_btn":
-            clan = db.get_user_clan(user.id)
-            if clan and clan['leader_id'] == user.id:
-                await query.message.reply_text("❌ Лидер не может выйти!")
-            else:
-                db.leave_clan(user.id)
-                await query.message.edit_text("✅ Вы вышли!", reply_markup=Keyboards.clan_menu())
+            db.leave_clan(user.id)
+            await query.message.edit_text("✅ Вы вышли!", reply_markup=Keyboards.clan_menu())
             return ConversationHandler.END
         
         elif data == "find_clan_btn":
@@ -1719,59 +1647,56 @@ def main():
             await query.message.reply_text("ID клана:")
             return WAITING_FOR_CLAN_ID
         
-        elif data == "create_clan_btn":
-            await query.message.reply_text("/create_clan <имя>")
-        
-        elif data == "clan_list_btn":
-            await query.message.reply_text("/clan_top")
-        
         elif data == "admin_panel":
-            if db.get_bot_admin_level(user.id) < 1:
-                await query.message.reply_text("❌ Нет прав!")
-                return ConversationHandler.END
             await query.message.edit_text("⭐️ Админ панель:", reply_markup=Keyboards.admin_panel())
         
         elif data == "admins_list":
             admins = db.get_all_bot_admins()
-            text = "👥 Админы:\n━━━━━━━━━━━━━━━━\n\n"
+            text = "👥 Админы:\n\n"
             for a in admins:
-                text += f"👤 {a['first_name']}\n🆔 {a['user_id']}\n📊 {a['level']}\n━━━━━━━━━━━━━━━━\n"
+                text += f"👤 {a['first_name']} - {a['level']}\n"
             await query.message.edit_text(text, reply_markup=Keyboards.admin_manage_menu())
         
         elif data == "add_admin":
             context.user_data['action'] = 'add_admin'
+            print("Действие: add_admin")
             await query.message.reply_text("ID:")
             return WAITING_FOR_ADMIN_ID
         
         elif data == "remove_admin":
             context.user_data['action'] = 'remove_admin'
+            print("Действие: remove_admin")
             await query.message.reply_text("ID:")
             return WAITING_FOR_ADMIN_ID
         
         elif data == "change_admin_level":
             context.user_data['action'] = 'change_admin_level'
+            print("Действие: change_admin_level")
             await query.message.reply_text("ID:")
             return WAITING_FOR_ADMIN_ID
         
         elif data == "agents_manage":
             agents = db.get_all_agents()
-            text = "🔰 Агенты:\n━━━━━━━━━━━━━━━━\n\n"
+            text = "🔰 Агенты:\n\n"
             for a in agents:
-                text += f"👤 {a['first_name']}\n🆔 {a['user_id']}\n📊 {a['level']}\n━━━━━━━━━━━━━━━━\n"
+                text += f"👤 {a['first_name']} - {a['level']}\n"
             await query.message.edit_text(text, reply_markup=Keyboards.agent_manage_menu())
         
         elif data == "add_agent":
             context.user_data['action'] = 'add_agent'
+            print("Действие: add_agent")
             await query.message.reply_text("ID:")
             return WAITING_FOR_AGENT_ID
         
         elif data == "remove_agent":
             context.user_data['action'] = 'remove_agent'
+            print("Действие: remove_agent")
             await query.message.reply_text("ID:")
             return WAITING_FOR_AGENT_ID
         
         elif data == "change_agent_level":
             context.user_data['action'] = 'change_agent_level'
+            print("Действие: change_agent_level")
             await query.message.reply_text("ID:")
             return WAITING_FOR_AGENT_ID
         
@@ -1807,17 +1732,17 @@ def main():
         
         elif data == "bot_stats":
             u, c, cl, a, ag, bl, m = db.get_total_stats()
-            text = f"📊 Статистика:\n\n👥 {u}\n💬 {c}\n🛡 {cl}\n👑 {a}\n🔰 {ag}\n🚫 {bl}\n📨 {m}"
+            text = f"📊 👥{u} 💬{c} 🛡{cl} 👑{a} 🔰{ag} 🚫{bl} 📨{m}"
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
         elif data == "bot_rank_settings":
-            await query.message.edit_text("⚙️ Права бота\n\nВыберите уровень:", reply_markup=Keyboards.rank_levels_for_access('bot'))
+            await query.message.edit_text("Выберите уровень:", reply_markup=Keyboards.rank_levels_for_access('bot'))
         
         elif data == "agent_settings":
-            await query.message.edit_text("⚙️ Права агентов\n\nВыберите уровень:", reply_markup=Keyboards.rank_levels_for_access('agent'))
+            await query.message.edit_text("Выберите уровень:", reply_markup=Keyboards.rank_levels_for_access('agent'))
         
         elif data == "chat_rank_settings":
-            await query.message.edit_text("⚙️ Права чата\n\nВыберите уровень:", reply_markup=Keyboards.rank_levels_for_access('chat'))
+            await query.message.edit_text("Выберите уровень:", reply_markup=Keyboards.rank_levels_for_access('chat'))
         
         elif data.startswith("rank_access_"):
             parts = data.split("_")
@@ -1852,25 +1777,7 @@ def main():
             return WAITING_FOR_RENAME
         
         elif data == "chat_panel":
-            is_owner = False
-            if update.effective_chat.type != 'private':
-                try:
-                    admins = await context.bot.get_chat_administrators(chat_id)
-                    for a in admins:
-                        if a.status == 'creator' and a.user.id == user.id:
-                            is_owner = True
-                            break
-                except:
-                    pass
-            
-            if not is_owner and db.get_bot_admin_level(user.id) < 10:
-                await query.message.reply_text("❌ Нет прав!")
-                return ConversationHandler.END
-            
             await query.message.edit_text("👑 Чат панель:", reply_markup=Keyboards.chat_panel())
-        
-        elif data == "chat_admins_list":
-            await query.message.edit_text("👥 Админы чата", reply_markup=Keyboards.back_to_start())
         
         elif data == "welcome_settings":
             ws = db.get_welcome_settings(chat_id)
@@ -1949,32 +1856,13 @@ def main():
             return ConversationHandler.END
         
         elif data == "commands_menu":
-            user_id = user.id
-            is_group = update.effective_chat.type != 'private'
-            text = "📋 Команды:\n\n👤 /start, /profile, /ping, /id\n🛡 /clan, /clan_top, /clan_bonus\n📝 /report, /stats, /ask"
-            
-            if is_group:
-                mods = []
-                if check_chat_access(user_id, chat_id, 'ban'): mods.append("/ban")
-                if check_chat_access(user_id, chat_id, 'unban'): mods.append("/unban")
-                if check_chat_access(user_id, chat_id, 'mute'): mods.append("/mute")
-                if check_chat_access(user_id, chat_id, 'unmute'): mods.append("/unmute")
-                if check_chat_access(user_id, chat_id, 'warn'): mods.append("/warn")
-                if check_chat_access(user_id, chat_id, 'unwarn'): mods.append("/unwarn")
-                if check_chat_access(user_id, chat_id, 'setadm'): mods.append("/setadm")
-                if mods:
-                    text += "\n\n🔨 " + ", ".join(mods)
-            
-            if db.get_bot_admin_level(user_id) >= 10:
-                text += "\n\n👑 /backup, /q, /delclan, /chat_id"
-            
-            await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
+            await query.message.edit_text("📋 /start /help /profile /clan", reply_markup=Keyboards.back_to_start())
         
         elif data == "agents_list":
             agents = db.get_all_agents()
             text = "🔰 Агенты:\n\n"
             for a in agents:
-                text += f"👤 {a['first_name']}\n📊 {a['level']}\n"
+                text += f"👤 {a['first_name']}\n"
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
         return ConversationHandler.END
