@@ -14,11 +14,10 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 import logging
 import os
 
-BOT_TOKEN = "8547620515:AAGPC2IJ4qLxSXXDqjyT5foG8sYXlLYud70"
+BOT_TOKEN = "8980577910:AAGJFO588dLcq86neXNAcPUwIW9_xG7UHc8"
 SUPER_ADMIN_ID = 8669060906
 BOT_USERNAME = "fluxy_cm_bot"
 
-# Состояния для ConversationHandler
 WAITING_FOR_ADMIN_ID = 1
 WAITING_FOR_ADMIN_LEVEL = 2
 WAITING_FOR_AGENT_ID = 3
@@ -39,7 +38,6 @@ WAITING_FOR_ACCESS_LEVEL = 34
 WAITING_FOR_TRANSFER_CLAN = 35
 WAITING_FOR_RENAME = 36
 
-# JSONBin настройки
 JSONBIN_API_KEY = "$2a$10$oQFi.r.b4KoxCupZTsKdzeH6ZktFfBr12SBHnTXgkmRwGBJr1bRdm"
 JSONBIN_BIN_ID = "6a8ac58bda38895dfe06783c"
 JSONBIN_URL = f"https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}"
@@ -69,14 +67,12 @@ class BackupManager:
                 "blacklist": self._get_blacklist(db),
                 "access_settings": self._get_access(db)
             }
-            
             try:
                 with open(self.local_file, 'w') as f:
                     json.dump(data, f)
                 print(f"✅ Локальное сохранение: {self.local_file}")
             except Exception as e:
                 print(f"❌ Ошибка локального сохранения: {e}")
-            
             try:
                 response = requests.put(self.url, headers=self.headers, json=data, timeout=5)
                 if response.status_code == 200:
@@ -88,7 +84,6 @@ class BackupManager:
             except Exception as e:
                 print(f"❌ JSONBin недоступен: {e}")
                 return True
-                
         except Exception as e:
             print(f"❌ Ошибка backup: {e}")
             return False
@@ -102,7 +97,6 @@ class BackupManager:
                 return True
         except:
             pass
-        
         try:
             response = requests.get(self.url, headers=self.headers, timeout=5)
             if response.status_code == 200:
@@ -578,7 +572,15 @@ class Database:
         total_chats = self.cursor.fetchone()[0]
         self.cursor.execute("SELECT COUNT(*) FROM clans")
         total_clans = self.cursor.fetchone()[0]
-        return total_users, total_chats, total_clans
+        self.cursor.execute("SELECT COUNT(*) FROM bot_admins")
+        total_admins = self.cursor.fetchone()[0]
+        self.cursor.execute("SELECT COUNT(*) FROM support_agents")
+        total_agents = self.cursor.fetchone()[0]
+        self.cursor.execute("SELECT COUNT(*) FROM bot_blacklist")
+        total_blacklist = self.cursor.fetchone()[0]
+        self.cursor.execute("SELECT COUNT(*) FROM chat_messages")
+        total_messages = self.cursor.fetchone()[0]
+        return total_users, total_chats, total_clans, total_admins, total_agents, total_blacklist, total_messages
 
     def add_message(self, user_id, chat_id):
         self.cursor.execute("INSERT INTO chat_messages (user_id, chat_id, message_time) VALUES (?, ?, ?)", (user_id, chat_id, datetime.now().isoformat()))
@@ -591,7 +593,6 @@ class Database:
             time_filter = (datetime.now() - timedelta(days=7)).isoformat()
         else:
             time_filter = '2000-01-01'
-        
         self.cursor.execute("""
             SELECT cm.user_id, u.first_name, COUNT(*) as msg_count 
             FROM chat_messages cm 
@@ -617,7 +618,6 @@ class Database:
         self.conn.close()
 
 
-# СОЗДАНИЕ ЭКЗЕМПЛЯРОВ
 db = Database()
 backup_manager = BackupManager()
 backup_manager.restore(db)
@@ -705,6 +705,7 @@ class Keyboards:
             [InlineKeyboardButton("🔰 Агенты поддержки", callback_data="agents_manage")],
             [InlineKeyboardButton("🚫 Черный список бота", callback_data="bot_blacklist")],
             [InlineKeyboardButton("⭐️ Выдать репутацию клану", callback_data="give_clan_rep")],
+            [InlineKeyboardButton("📊 Статистика бота", callback_data="bot_stats")],
             [InlineKeyboardButton("👑 Супер админ", callback_data="super_admin")],
             [InlineKeyboardButton("📨 Рассылка", callback_data="broadcast_menu")],
             [InlineKeyboardButton("⚙️ Права рангов", callback_data="bot_rank_settings")],
@@ -912,7 +913,6 @@ class Keyboards:
     @staticmethod
     def super_admin_menu():
         keyboard = [
-            [InlineKeyboardButton("📊 Статистика бота", callback_data="bot_stats")],
             [InlineKeyboardButton("📋 Все команды", callback_data="all_commands")],
             [InlineKeyboardButton("📝 Ранги бота", callback_data="bot_rank_names")],
             [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_start")]
@@ -2027,10 +2027,10 @@ class Handlers:
             return ConversationHandler.END
         
         elif data == "back_to_clan":
-                clan = db.get_user_clan(user.id)
-                if clan:
-                	is_leader = clan[2] == user.id
-                	text = f"""🛡 Ваш клан
+            clan = db.get_user_clan(user.id)
+            if clan:
+                is_leader = clan[2] == user.id
+                text = f"""🛡 Ваш клан
 ━━━━━━━━━━━━━━━━
 
 🆔 ID: {clan[0]}
@@ -2040,7 +2040,7 @@ class Handlers:
 🏅 Побед: {clan[7]}
 💀 Поражений: {clan[8]}"""
                 await query.message.edit_text(text, reply_markup=Keyboards.my_clan_menu(is_leader))
-                return ConversationHandler.END
+            return ConversationHandler.END
         
         # Профиль и награды
         elif data == "profile":
@@ -2218,18 +2218,18 @@ class Handlers:
                 db.cursor.execute("DELETE FROM clan_messages WHERE from_clan_id = ? OR to_clan_id = ?", (clan[0], clan[0]))
                 db.conn.commit()
                 await query.message.edit_text("✅ Клан удален!", reply_markup=Keyboards.clan_menu())
-                
+        
         elif data == "leave_clan_btn":
-                clan = db.get_user_clan(user.id)
-                if clan:
-                	if clan[2] == user.id:
-                		await query.message.reply_text("❌ Лидер не может покинуть клан!")
-                	else:
-                		db.leave_clan(user.id)
-                		await query.message.edit_text(f"✅ Вы покинули клан «{clan[1]}»!", reply_markup=Keyboards.clan_menu())
+            clan = db.get_user_clan(user.id)
+            if clan:
+                if clan[2] == user.id:
+                    await query.message.reply_text("❌ Лидер не может покинуть клан!")
                 else:
-                		await query.message.reply_text("❌ Вы не в клане!")
-                return ConversationHandler.END
+                    db.leave_clan(user.id)
+                    await query.message.edit_text(f"✅ Вы покинули клан «{clan[1]}»!", reply_markup=Keyboards.clan_menu())
+            else:
+                await query.message.reply_text("❌ Вы не в клане!")
+            return ConversationHandler.END
         
         elif data == "find_clan_btn":
             context.user_data['waiting_clan_id'] = True
@@ -2336,13 +2336,18 @@ class Handlers:
             await query.message.edit_text("👑 Супер админ функции", reply_markup=Keyboards.super_admin_menu())
         
         elif data == "bot_stats":
-            total_users, total_chats, total_clans = db.get_total_stats()
+            total_users, total_chats, total_clans, total_admins, total_agents, total_blacklist, total_messages = db.get_total_stats()
+            
             text = f"""📊 Статистика бота:
 ━━━━━━━━━━━━━━━━
 
 👥 Пользователей: {total_users}
 💬 Чатов: {total_chats}
-🛡 Кланов: {total_clans}"""
+🛡 Кланов: {total_clans}
+👑 Админов: {total_admins}
+🔰 Агентов: {total_agents}
+🚫 В ЧС: {total_blacklist}
+📨 Сообщений: {total_messages}"""
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
         elif data == "all_commands":
@@ -2412,7 +2417,7 @@ class Handlers:
             function = data.replace("bot_access_", "")
             context.user_data['setting_type'] = 'bot'
             context.user_data['setting_name'] = function
-            await query.message.edit_text(f"Выберите минимальный уровень:", reply_markup=Keyboards.access_levels())
+            await query.message.edit_text(f"Выберите минимальный уровень для «{function}»:", reply_markup=Keyboards.access_levels())
         
         elif data == "agent_settings":
             await query.message.edit_text("⚙️ Права агентов:\n\nВыберите функцию:", reply_markup=Keyboards.agent_access_functions())
@@ -2421,7 +2426,7 @@ class Handlers:
             function = data.replace("agent_access_", "")
             context.user_data['setting_type'] = 'agent'
             context.user_data['setting_name'] = function
-            await query.message.edit_text(f"Выберите минимальный уровень:", reply_markup=Keyboards.access_levels())
+            await query.message.edit_text(f"Выберите минимальный уровень для «{function}»:", reply_markup=Keyboards.access_levels())
         
         elif data == "chat_rank_settings":
             await query.message.edit_text("⚙️ Права рангов чата:\n\nВыберите функцию:", reply_markup=Keyboards.chat_access_functions())
@@ -2430,7 +2435,7 @@ class Handlers:
             function = data.replace("chat_access_", "")
             context.user_data['setting_type'] = 'chat'
             context.user_data['setting_name'] = function
-            await query.message.edit_text(f"Выберите минимальный уровень:", reply_markup=Keyboards.access_levels())
+            await query.message.edit_text(f"Выберите минимальный уровень для «{function}»:", reply_markup=Keyboards.access_levels())
         
         elif data.startswith("set_level_"):
             level = int(data.replace("set_level_", ""))
