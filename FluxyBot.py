@@ -14,7 +14,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 import logging
 import os
 
-BOT_TOKEN = "8980577910:AAGJFO588dLcq86neXNAcPUwIW9_xG7UHc8"
+BOT_TOKEN = "8547620515:AAGPC2IJ4qLxSXXDqjyT5foG8sYXlLYud70"
 SUPER_ADMIN_ID = 8669060906
 BOT_USERNAME = "fluxy_cm_bot"
 
@@ -59,10 +59,9 @@ class Database:
         self.local_file = "backup_local.json"
         self.data = {}
         self.load_data()
+        self.ensure_keys()
     
     def load_data(self):
-        """Загрузка данных из локального файла или JSONBin"""
-        # Пробуем локальный файл
         try:
             with open(self.local_file, 'r') as f:
                 self.data = json.load(f)
@@ -71,7 +70,6 @@ class Database:
         except:
             pass
         
-        # Пробуем JSONBin
         try:
             response = requests.get(JSONBIN_URL, headers=JSONBIN_HEADERS, timeout=5)
             if response.status_code == 200:
@@ -81,8 +79,11 @@ class Database:
         except Exception as e:
             print(f"❌ Ошибка загрузки из JSONBin: {e}")
         
-        # Пустые данные
-        self.data = {
+        self.data = {}
+        print("✅ Создана пустая база данных")
+    
+    def ensure_keys(self):
+        defaults = {
             "users": [],
             "bot_admins": [],
             "support_agents": [],
@@ -94,19 +95,22 @@ class Database:
             "questions": [],
             "chat_messages": [],
             "clan_bonus_usage": [],
+            "rewards": [],
+            "bot_rank_names": {},
+            "agent_rank_names": {},
+            "chat_rank_names": {},
         }
-        print("✅ Создана пустая база данных")
+        for key, value in defaults.items():
+            if key not in self.data:
+                self.data[key] = value
     
     def save_data(self):
-        """Сохранение в локальный файл и JSONBin"""
-        # Локально
         try:
             with open(self.local_file, 'w') as f:
                 json.dump(self.data, f)
         except:
             pass
         
-        # JSONBin
         try:
             response = requests.put(JSONBIN_URL, headers=JSONBIN_HEADERS, json=self.data, timeout=5)
             if response.status_code == 200:
@@ -114,7 +118,7 @@ class Database:
         except Exception as e:
             print(f"❌ Ошибка сохранения: {e}")
     
-    # Методы для пользователей
+    # Пользователи
     def add_user(self, user_id, username, first_name):
         for user in self.data["users"]:
             if user["user_id"] == user_id:
@@ -135,6 +139,10 @@ class Database:
                 return user
         return None
     
+    def get_all_users(self):
+        return [user["user_id"] for user in self.data["users"]]
+    
+    # Админы
     def get_bot_admin_level(self, user_id):
         if user_id == SUPER_ADMIN_ID:
             return 10
@@ -162,16 +170,15 @@ class Database:
         self.save_data()
     
     def get_all_bot_admins(self):
-        admins = []
+        result = []
         for admin in self.data["bot_admins"]:
             user = self.get_user(admin["user_id"])
-            admins.append({
+            result.append({
                 "user_id": admin["user_id"],
                 "level": admin["level"],
-                "username": user["username"] if user else "",
                 "first_name": user["first_name"] if user else "Пользователь"
             })
-        return sorted(admins, key=lambda x: x["level"], reverse=True)
+        return sorted(result, key=lambda x: x["level"], reverse=True)
     
     def update_bot_admin_level(self, user_id, level):
         for admin in self.data["bot_admins"]:
@@ -180,6 +187,7 @@ class Database:
                 self.save_data()
                 return
     
+    # Агенты
     def add_agent(self, user_id, level):
         for agent in self.data["support_agents"]:
             if agent["user_id"] == user_id:
@@ -205,17 +213,17 @@ class Database:
         return 0
     
     def get_all_agents(self):
-        agents = []
+        result = []
         for agent in self.data["support_agents"]:
             user = self.get_user(agent["user_id"])
-            agents.append({
+            result.append({
                 "user_id": agent["user_id"],
                 "level": agent["level"],
                 "status": agent.get("status", "offline"),
                 "answered_questions": agent.get("answered_questions", 0),
                 "first_name": user["first_name"] if user else "Агент"
             })
-        return agents
+        return result
     
     def update_agent_level(self, user_id, level):
         for agent in self.data["support_agents"]:
@@ -238,7 +246,9 @@ class Database:
             "wins": 0,
             "losses": 0
         })
-        self.join_clan(leader_id, clan_id)
+        for user in self.data["users"]:
+            if user["user_id"] == leader_id:
+                user["clan_id"] = clan_id
         self.save_data()
         return clan_id
     
@@ -264,7 +274,6 @@ class Database:
         for user in self.data["users"]:
             if user["user_id"] == user_id:
                 user["clan_id"] = clan_id
-                user["clan_join_date"] = datetime.now().isoformat()
         for clan in self.data["clans"]:
             if clan["clan_id"] == clan_id:
                 clan["total_members"] = sum(1 for u in self.data["users"] if u.get("clan_id") == clan_id)
@@ -282,11 +291,7 @@ class Database:
         self.save_data()
     
     def get_clan_members(self, clan_id):
-        members = []
-        for user in self.data["users"]:
-            if user.get("clan_id") == clan_id:
-                members.append(user)
-        return members
+        return [u for u in self.data["users"] if u.get("clan_id") == clan_id]
     
     def add_clan_rating(self, clan_id, rating):
         for clan in self.data["clans"]:
@@ -296,8 +301,9 @@ class Database:
                 return
     
     def get_top_clans(self, limit=10):
-        clans = sorted(self.data["clans"], key=lambda x: (x.get("rating", 0), x.get("total_members", 0)), reverse=True)
-        return clans[:limit]
+        for clan in self.data["clans"]:
+            clan["total_members"] = sum(1 for u in self.data["users"] if u.get("clan_id") == clan["clan_id"])
+        return sorted(self.data["clans"], key=lambda x: (x.get("rating", 0), x.get("total_members", 0)), reverse=True)[:limit]
     
     def update_clan_entry_type(self, clan_id, entry_type):
         for clan in self.data["clans"]:
@@ -305,6 +311,49 @@ class Database:
                 clan["entry_type"] = entry_type
                 self.save_data()
                 return
+    
+    def add_clan_request(self, clan_id, user_id):
+        self.data.setdefault("clan_requests", []).append({
+            "clan_id": clan_id,
+            "user_id": user_id,
+            "date": datetime.now().isoformat(),
+            "status": "pending"
+        })
+        self.save_data()
+    
+    def get_clan_requests(self, clan_id):
+        return [r for r in self.data.get("clan_requests", []) if r["clan_id"] == clan_id and r["status"] == "pending"]
+    
+    def update_clan_request(self, request_id, status):
+        for req in self.data.get("clan_requests", []):
+            if req.get("request_id") == request_id or req.get("user_id") == request_id:
+                req["status"] = status
+                self.save_data()
+                return
+    
+    def declare_war(self, clan1_id, clan2_id, rating_stake):
+        clan1 = self.get_clan_by_id(clan1_id)
+        clan2 = self.get_clan_by_id(clan2_id)
+        if not clan1 or not clan2:
+            return None
+        winner_id = random.choice([clan1_id, clan2_id])
+        loser_id = clan2_id if winner_id == clan1_id else clan1_id
+        self.add_clan_rating(winner_id, rating_stake)
+        self.add_clan_rating(loser_id, -rating_stake)
+        return {"winner_id": winner_id, "clan1_name": clan1["name"], "clan2_name": clan2["name"]}
+    
+    def add_clan_message(self, from_clan_id, to_clan_id, from_user_id, text):
+        self.data.setdefault("clan_messages", []).append({
+            "from_clan_id": from_clan_id,
+            "to_clan_id": to_clan_id,
+            "from_user_id": from_user_id,
+            "text": text,
+            "date": datetime.now().isoformat()
+        })
+        self.save_data()
+    
+    def get_clan_messages(self, clan_id):
+        return [m for m in self.data.get("clan_messages", []) if m["to_clan_id"] == clan_id]
     
     # Черный список
     def add_to_blacklist(self, user_id, reason, added_by):
@@ -381,7 +430,7 @@ class Database:
     def add_chat(self, chat_id, title):
         for chat in self.data["chats"]:
             if chat["chat_id"] == chat_id:
-                chat["title"] = title
+                chat["title"] = title or "Чат"
                 self.save_data()
                 return
         self.data["chats"].append({
@@ -460,31 +509,36 @@ class Database:
     # Ранги
     def get_bot_rank_name(self, level):
         ranks = {0: "Пользователь", 1: "Младший модератор", 2: "Модератор", 3: "Старший модератор", 4: "Младший админ", 5: "Админ", 6: "Старший админ", 7: "Главный админ", 8: "Заместитель основателя", 9: "Сооснователь", 10: "Основатель бота"}
-        return ranks.get(level, f"Уровень {level}")
+        return self.data.get("bot_rank_names", {}).get(str(level), ranks.get(level, f"Уровень {level}"))
     
     def get_chat_rank_name(self, level):
         ranks = {0: "Пользователь", 1: "Младший модератор", 2: "Модератор", 3: "Старший модератор", 4: "Младший админ", 5: "Админ", 6: "Старший админ", 7: "Главный админ", 8: "Заместитель владельца", 9: "Сооснователь", 10: "Владелец"}
-        return ranks.get(level, f"Уровень {level}")
+        return self.data.get("chat_rank_names", {}).get(str(level), ranks.get(level, f"Уровень {level}"))
     
     def get_agent_rank_name(self, level):
         ranks = {1: "Младший агент", 2: "Агент", 3: "Старший агент"}
-        return ranks.get(level, f"Уровень {level}")
+        return self.data.get("agent_rank_names", {}).get(str(level), ranks.get(level, f"Уровень {level}"))
     
     def update_bot_rank_name(self, level, name):
-        self.data.setdefault("bot_rank_names", {})[str(level)] = name
+        self.data["bot_rank_names"][str(level)] = name
         self.save_data()
     
     def update_agent_rank_name(self, level, name):
-        self.data.setdefault("agent_rank_names", {})[str(level)] = name
+        self.data["agent_rank_names"][str(level)] = name
         self.save_data()
     
     def update_chat_rank_name(self, level, name):
-        self.data.setdefault("chat_rank_names", {})[str(level)] = name
+        self.data["chat_rank_names"][str(level)] = name
         self.save_data()
     
     # Доступ
     def set_access_level(self, setting_type, setting_name, min_level):
-        self.data.setdefault("access_settings", []).append({
+        for setting in self.data["access_settings"]:
+            if setting["type"] == setting_type and setting["name"] == setting_name:
+                setting["min_level"] = min_level
+                self.save_data()
+                return
+        self.data["access_settings"].append({
             "type": setting_type,
             "name": setting_name,
             "min_level": min_level
@@ -492,7 +546,7 @@ class Database:
         self.save_data()
     
     def get_access_level(self, setting_type, setting_name):
-        for setting in self.data.get("access_settings", []):
+        for setting in self.data["access_settings"]:
             if setting["type"] == setting_type and setting["name"] == setting_name:
                 return setting["min_level"]
         return 10
@@ -515,7 +569,6 @@ class Database:
             "chat_id": chat_id,
             "message_time": datetime.now().isoformat()
         })
-        # Не сохраняем каждое сообщение для скорости
     
     def get_top_messages(self, chat_id, period='all'):
         messages = self.data.get("chat_messages", [])
@@ -564,7 +617,7 @@ class Database:
     def can_use_clan_bonus(self, user_id, clan_id):
         today = datetime.now().strftime("%Y-%m-%d")
         for usage in self.data.get("clan_bonus_usage", []):
-            if usage["clan_id"] == clan_id and usage["user_id"] == user_id and usage["date"] == today:
+            if usage.get("clan_id") == clan_id and usage.get("user_id") == user_id and usage.get("date") == today:
                 return False
         return True
     
@@ -576,9 +629,6 @@ class Database:
             "date": today
         })
         self.save_data()
-    
-    def get_all_users(self):
-        return [user["user_id"] for user in self.data["users"]]
 
 
 # Создание экземпляра
