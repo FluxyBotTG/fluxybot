@@ -11,7 +11,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, ConversationHandler
 import logging
 
-BOT_TOKEN = "8547620515:AAGPC2IJ4qLxSXXDqjyT5foG8sYXlLYud70"
+BOT_TOKEN = "8980577910:AAGJFO588dLcq86neXNAcPUwIW9_xG7UHc8"
 SUPER_ADMIN_ID = 8669060906
 BOT_USERNAME = "fluxy_cm_bot"
 
@@ -850,7 +850,6 @@ class Handlers:
 ━━━━━━━━━━━━━━━━
 Для продолжения нажмите на кнопку ниже ⬇️"""
         
-        # Супер админ видит обе панели
         if bot_rank >= 10:
             await update.message.reply_text(text, reply_markup=Keyboards.main_menu_with_both())
         elif bot_rank >= 1 and is_owner:
@@ -911,7 +910,7 @@ class Handlers:
             text += "\n\n⭐️ Админ:\n" + "\n".join(admins_cmds)
         
         if db.get_bot_admin_level(user.id) >= 10:
-            text += "\n\n👑 Основатель:\n/rename_bot_rank - Ранг бота\n/rename_agent_rank - Ранг агента\n/rename_chat_rank - Ранг чата\n/backup - Сохранение\n/q - Выйти из чата"
+            text += "\n\n👑 Основатель:\n/backup - Сохранение\n/q - Выйти из чата\n/delclan - Удалить клан\n/chat_id - ID чата"
         
         agent_cmds = []
         if check_agent_access(user.id, 'answer_questions'): agent_cmds.append("/answer_question - Ответить")
@@ -1359,39 +1358,6 @@ class Handlers:
             await update.message.reply_text("❌ Ошибка!")
 
     @staticmethod
-    async def rename_bot_rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if db.get_bot_admin_level(update.effective_user.id) < 10:
-            await update.message.reply_text("❌ Только Основатель!")
-            return
-        if len(context.args) < 2:
-            await update.message.reply_text("❌ /rename_bot_rank <уровень> <название>")
-            return
-        db.update_bot_rank_name(int(context.args[0]), " ".join(context.args[1:]))
-        await update.message.reply_text(f"✅ Ранг {context.args[0]} → «{' '.join(context.args[1:])}»!")
-
-    @staticmethod
-    async def rename_agent_rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if db.get_bot_admin_level(update.effective_user.id) < 10:
-            await update.message.reply_text("❌ Только Основатель!")
-            return
-        if len(context.args) < 2:
-            await update.message.reply_text("❌ /rename_agent_rank <уровень> <название>")
-            return
-        db.update_agent_rank_name(int(context.args[0]), " ".join(context.args[1:]))
-        await update.message.reply_text(f"✅ Уровень {context.args[0]} → «{' '.join(context.args[1:])}»!")
-
-    @staticmethod
-    async def rename_chat_rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if db.get_bot_admin_level(update.effective_user.id) < 10:
-            await update.message.reply_text("❌ Только Основатель!")
-            return
-        if len(context.args) < 2:
-            await update.message.reply_text("❌ /rename_chat_rank <уровень> <название>")
-            return
-        db.update_chat_rank_name(int(context.args[0]), " ".join(context.args[1:]))
-        await update.message.reply_text(f"✅ Ранг {context.args[0]} → «{' '.join(context.args[1:])}»!")
-
-    @staticmethod
     async def accept_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not context.args:
             await update.message.reply_text("❌ /accept_request <ID>")
@@ -1449,6 +1415,55 @@ class Handlers:
         except Exception as e:
             await update.message.reply_text(f"❌ Ошибка: {str(e)[:100]}")
 
+    @staticmethod
+    async def delclan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user = update.effective_user
+        
+        if db.get_bot_admin_level(user.id) < 10:
+            await update.message.reply_text("❌ Только Основатель!")
+            return
+        
+        if not context.args:
+            await update.message.reply_text("❌ /delclan <ID клана>")
+            return
+        
+        try:
+            clan_id = int(context.args[0])
+        except:
+            await update.message.reply_text("❌ Неверный ID!")
+            return
+        
+        clan = db.get_clan_by_id(clan_id)
+        if not clan:
+            await update.message.reply_text("❌ Клан не найден!")
+            return
+        
+        db.data["clans"] = [c for c in db.data["clans"] if c["clan_id"] != clan_id]
+        for u in db.data["users"]:
+            if u.get("clan_id") == clan_id:
+                u["clan_id"] = None
+        db.data["clan_requests"] = [r for r in db.data.get("clan_requests", []) if r["clan_id"] != clan_id]
+        db.save_data()
+        await update.message.reply_text(f"✅ Клан «{clan['name']}» удален!")
+
+    @staticmethod
+    async def chat_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user = update.effective_user
+        
+        if db.get_bot_admin_level(user.id) < 10:
+            await update.message.reply_text("❌ Только Основатель!")
+            return
+        
+        chat_id = update.effective_chat.id
+        chat_title = update.effective_chat.title or "Личные сообщения"
+        chat_type = update.effective_chat.type
+        
+        await update.message.reply_text(
+            f"🆔 ID чата: {chat_id}\n"
+            f"📝 Название: {chat_title}\n"
+            f"📋 Тип: {chat_type}"
+        )
+
 #======================#
 #4 ЧАСТЬ | Button_Handler  #
 #======================#
@@ -1505,7 +1520,6 @@ def main():
                 except:
                     pass
             
-            # Супер админ видит обе панели
             if bot_rank >= 10:
                 await query.message.edit_text("Главное меню Fluxy", reply_markup=Keyboards.main_menu_with_both())
             elif bot_rank >= 1 and is_owner:
@@ -1846,15 +1860,15 @@ def main():
         
         elif data == "bot_rank_names":
             context.user_data['rename_type'] = 'bot'
-            await query.message.edit_text("📝 Ранги бота\n\nВыберите уровень:", reply_markup=Keyboards.rank_levels('bot'))
+            await query.message.edit_text("📝 Ранги бота\n\nВыберите уровень для переименования:", reply_markup=Keyboards.rank_levels('bot'))
         
         elif data == "agent_rank_names":
             context.user_data['rename_type'] = 'agent'
-            await query.message.edit_text("📝 Ранги агентов\n\nВыберите уровень:", reply_markup=Keyboards.rank_levels('agent'))
+            await query.message.edit_text("📝 Ранги агентов\n\nВыберите уровень для переименования:", reply_markup=Keyboards.rank_levels('agent'))
         
         elif data == "chat_rank_names":
             context.user_data['rename_type'] = 'chat'
-            await query.message.edit_text("📝 Ранги чата\n\nВыберите уровень:", reply_markup=Keyboards.rank_levels('chat'))
+            await query.message.edit_text("📝 Ранги чата\n\nВыберите уровень для переименования:", reply_markup=Keyboards.rank_levels('chat'))
         
         elif data.startswith("rename_level_"):
             lvl = int(data.replace("rename_level_", ""))
@@ -1985,7 +1999,7 @@ def main():
                 text += "\n\n⭐️ Админ:\n" + ", ".join(admins_cmds)
             
             if db.get_bot_admin_level(user_id) >= 10:
-                text += "\n\n👑 Основатель:\n/rename_bot_rank, /rename_agent_rank, /rename_chat_rank, /backup, /q"
+                text += "\n\n👑 Основатель:\n/backup, /q, /delclan, /chat_id"
             
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
@@ -2016,11 +2030,10 @@ def main():
         "answer_report": Handlers.answer_report, "reject_report": Handlers.reject_report,
         "answer_question": Handlers.answer_question, "reject_question": Handlers.reject_question,
         "astats": Handlers.astats, "hstats": Handlers.hstats,
-        "give_rep": Handlers.give_rep, "rename_bot_rank": Handlers.rename_bot_rank,
-        "rename_agent_rank": Handlers.rename_agent_rank, "rename_chat_rank": Handlers.rename_chat_rank,
+        "give_rep": Handlers.give_rep,
         "accept_request": Handlers.accept_request, "reject_request": Handlers.reject_request,
         "ask": Handlers.ask, "backup": backup_handler,
-        "q": Handlers.quit_chat,
+        "q": Handlers.quit_chat, "delclan": Handlers.delclan, "chat_id": Handlers.chat_id,
     }
     
     for cmd, handler in commands.items():
