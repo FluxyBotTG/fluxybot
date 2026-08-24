@@ -11,7 +11,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, ConversationHandler
 import logging
 
-BOT_TOKEN = "8980577910:AAGJFO588dLcq86neXNAcPUwIW9_xG7UHc8"
+BOT_TOKEN = "8547620515:AAGPC2IJ4qLxSXXDqjyT5foG8sYXlLYud70"
 SUPER_ADMIN_ID = 8669060906
 BOT_USERNAME = "fluxy_cm_bot"
 
@@ -180,7 +180,11 @@ class Database:
     
     def create_clan(self, name, leader_id):
         clan_id = len(self.data["clans"]) + 1
-        self.data["clans"].append({"clan_id": clan_id, "name": name, "leader_id": leader_id, "rating": 0, "entry_type": "open", "total_members": 1, "wins": 0, "losses": 0})
+        self.data["clans"].append({
+            "clan_id": clan_id, "name": name, "leader_id": leader_id,
+            "rating": 0, "entry_type": "open",
+            "total_members": 1, "wins": 0, "losses": 0
+        })
         for u in self.data["users"]:
             if u["user_id"] == leader_id:
                 u["clan_id"] = clan_id
@@ -207,18 +211,31 @@ class Database:
     
     def join_clan(self, user_id, clan_id):
         for u in self.data["users"]:
+            if u["user_id"] == user_id and u.get("clan_id") is not None:
+                return False
+        
+        for u in self.data["users"]:
             if u["user_id"] == user_id:
                 u["clan_id"] = clan_id
+        
         for c in self.data["clans"]:
             if c["clan_id"] == clan_id:
                 c["total_members"] = sum(1 for u in self.data["users"] if u.get("clan_id") == clan_id)
+        
         self.save_data()
+        return True
     
     def leave_clan(self, user_id):
         for u in self.data["users"]:
             if u["user_id"] == user_id:
+                clan_id = u.get("clan_id")
                 u["clan_id"] = None
-        self.save_data()
+                if clan_id:
+                    for c in self.data["clans"]:
+                        if c["clan_id"] == clan_id:
+                            c["total_members"] = sum(1 for u in self.data["users"] if u.get("clan_id") == clan_id)
+                self.save_data()
+                return
     
     def get_clan_members(self, clan_id):
         return [u for u in self.data["users"] if u.get("clan_id") == clan_id]
@@ -231,6 +248,9 @@ class Database:
                 return
     
     def get_top_clans(self, limit=10):
+        for c in self.data["clans"]:
+            c["total_members"] = sum(1 for u in self.data["users"] if u.get("clan_id") == c["clan_id"])
+        self.save_data()
         return sorted(self.data["clans"], key=lambda x: (x.get("rating", 0), x.get("total_members", 0)), reverse=True)[:limit]
     
     def update_clan_entry_type(self, clan_id, entry_type):
@@ -830,7 +850,10 @@ class Handlers:
 ━━━━━━━━━━━━━━━━
 Для продолжения нажмите на кнопку ниже ⬇️"""
         
-        if bot_rank >= 1 and is_owner:
+        # Супер админ видит обе панели
+        if bot_rank >= 10:
+            await update.message.reply_text(text, reply_markup=Keyboards.main_menu_with_both())
+        elif bot_rank >= 1 and is_owner:
             await update.message.reply_text(text, reply_markup=Keyboards.main_menu_with_both())
         elif bot_rank >= 1:
             await update.message.reply_text(text, reply_markup=Keyboards.main_menu_with_admin())
@@ -888,7 +911,7 @@ class Handlers:
             text += "\n\n⭐️ Админ:\n" + "\n".join(admins_cmds)
         
         if db.get_bot_admin_level(user.id) >= 10:
-            text += "\n\n👑 Основатель:\n/rename_bot_rank - Ранг бота\n/rename_agent_rank - Ранг агента\n/rename_chat_rank - Ранг чата\n/backup - Сохранение"
+            text += "\n\n👑 Основатель:\n/rename_bot_rank - Ранг бота\n/rename_agent_rank - Ранг агента\n/rename_chat_rank - Ранг чата\n/backup - Сохранение\n/q - Выйти из чата"
         
         agent_cmds = []
         if check_agent_access(user.id, 'answer_questions'): agent_cmds.append("/answer_question - Ответить")
@@ -968,6 +991,9 @@ class Handlers:
         if db.get_clan_by_name(name):
             await update.message.reply_text("❌ Клан уже существует!")
             return
+        if db.get_user_clan(update.effective_user.id):
+            await update.message.reply_text("❌ Вы уже в клане!")
+            return
         cid = db.create_clan(name, update.effective_user.id)
         await update.message.reply_text(f"✅ Клан «{name}» создан!\n🆔 ID: {cid}")
 
@@ -980,6 +1006,16 @@ class Handlers:
             cid = int(context.args[0])
             clan = db.get_clan_by_id(cid)
             if clan:
+                if db.get_user_clan(update.effective_user.id):
+                    await update.message.reply_text("❌ Вы уже в клане!")
+                    return
+                if clan['entry_type'] == 'closed':
+                    await update.message.reply_text("❌ Вход закрыт!")
+                    return
+                if clan['entry_type'] == 'request':
+                    db.add_clan_request(cid, update.effective_user.id)
+                    await update.message.reply_text("✅ Заявка отправлена!")
+                    return
                 db.join_clan(update.effective_user.id, cid)
                 await update.message.reply_text(f"✅ Вы вступили в «{clan['name']}»!")
             else:
@@ -992,7 +1028,7 @@ class Handlers:
         clan = db.get_user_clan(update.effective_user.id)
         if clan:
             if clan['leader_id'] == update.effective_user.id:
-                await update.message.reply_text("❌ Лидер не может покинуть клан!")
+                await update.message.reply_text("❌ Лидер не может покинуть клан! Передайте клан или удалите его!")
                 return
             db.leave_clan(update.effective_user.id)
             await update.message.reply_text(f"✅ Вы покинули клан «{clan['name']}»!")
@@ -1004,6 +1040,7 @@ class Handlers:
         user = update.effective_user
         clan = db.get_user_clan(user.id)
         if clan:
+            clan['total_members'] = len(db.get_clan_members(clan['clan_id']))
             is_leader = clan['leader_id'] == user.id
             text = f"""🛡 Ваш клан
 ━━━━━━━━━━━━━━━━
@@ -1385,6 +1422,33 @@ class Handlers:
             except:
                 pass
 
+    @staticmethod
+    async def quit_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user = update.effective_user
+        
+        if db.get_bot_admin_level(user.id) < 10:
+            await update.message.reply_text("❌ Только Основатель!")
+            return
+        
+        if not context.args:
+            await update.message.reply_text("❌ /q <ID чата>")
+            return
+        
+        try:
+            chat_id = int(context.args[0])
+        except:
+            await update.message.reply_text("❌ Неверный ID!")
+            return
+        
+        try:
+            chat = await context.bot.get_chat(chat_id)
+            await context.bot.leave_chat(chat_id)
+            db.data["chats"] = [c for c in db.data["chats"] if c["chat_id"] != chat_id]
+            db.save_data()
+            await update.message.reply_text(f"✅ Бот вышел из чата «{chat.title}»!")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка: {str(e)[:100]}")
+
 #======================#
 #4 ЧАСТЬ | Button_Handler  #
 #======================#
@@ -1441,7 +1505,10 @@ def main():
                 except:
                     pass
             
-            if bot_rank >= 1 and is_owner:
+            # Супер админ видит обе панели
+            if bot_rank >= 10:
+                await query.message.edit_text("Главное меню Fluxy", reply_markup=Keyboards.main_menu_with_both())
+            elif bot_rank >= 1 and is_owner:
                 await query.message.edit_text("Главное меню Fluxy", reply_markup=Keyboards.main_menu_with_both())
             elif bot_rank >= 1:
                 await query.message.edit_text("Главное меню Fluxy", reply_markup=Keyboards.main_menu_with_admin())
@@ -1466,6 +1533,7 @@ def main():
         elif data == "back_to_clan":
             clan = db.get_user_clan(user.id)
             if clan:
+                clan['total_members'] = len(db.get_clan_members(clan['clan_id']))
                 is_leader = clan['leader_id'] == user.id
                 text = f"""🛡 Ваш клан
 ━━━━━━━━━━━━━━━━
@@ -1537,6 +1605,7 @@ def main():
         elif data == "clan_menu":
             clan = db.get_user_clan(user.id)
             if clan:
+                clan['total_members'] = len(db.get_clan_members(clan['clan_id']))
                 is_leader = clan['leader_id'] == user.id
                 text = f"""🛡 Ваш клан
 ━━━━━━━━━━━━━━━━
@@ -1637,8 +1706,12 @@ def main():
                 await query.message.edit_text("✅ Клан удален!", reply_markup=Keyboards.clan_menu())
         
         elif data == "leave_clan_btn":
-            db.leave_clan(user.id)
-            await query.message.edit_text("✅ Вы вышли из клана!", reply_markup=Keyboards.clan_menu())
+            clan = db.get_user_clan(user.id)
+            if clan and clan['leader_id'] == user.id:
+                await query.message.reply_text("❌ Лидер не может покинуть клан!")
+            else:
+                db.leave_clan(user.id)
+                await query.message.edit_text("✅ Вы вышли из клана!", reply_markup=Keyboards.clan_menu())
             return ConversationHandler.END
         
         elif data == "find_clan_btn":
@@ -1653,6 +1726,9 @@ def main():
             await query.message.reply_text("Используйте: /clan_top")
         
         elif data == "admin_panel":
+            if db.get_bot_admin_level(user.id) < 1:
+                await query.message.reply_text("❌ Недостаточно прав!")
+                return ConversationHandler.END
             await query.message.edit_text("⭐️ Админ панель бота:", reply_markup=Keyboards.admin_panel())
         
         elif data == "admins_list":
@@ -1787,6 +1863,21 @@ def main():
             return WAITING_FOR_RENAME
         
         elif data == "chat_panel":
+            is_owner = False
+            if update.effective_chat.type != 'private':
+                try:
+                    admins = await context.bot.get_chat_administrators(chat_id)
+                    for a in admins:
+                        if a.status == 'creator' and a.user.id == user.id:
+                            is_owner = True
+                            break
+                except:
+                    pass
+            
+            if not is_owner and db.get_bot_admin_level(user.id) < 10:
+                await query.message.reply_text("❌ Недостаточно прав!")
+                return ConversationHandler.END
+            
             await query.message.edit_text("👑 Админ панель чата:", reply_markup=Keyboards.chat_panel())
         
         elif data == "chat_admins_list":
@@ -1894,7 +1985,7 @@ def main():
                 text += "\n\n⭐️ Админ:\n" + ", ".join(admins_cmds)
             
             if db.get_bot_admin_level(user_id) >= 10:
-                text += "\n\n👑 Основатель:\n/rename_bot_rank, /rename_agent_rank, /rename_chat_rank, /backup"
+                text += "\n\n👑 Основатель:\n/rename_bot_rank, /rename_agent_rank, /rename_chat_rank, /backup, /q"
             
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
@@ -1929,6 +2020,7 @@ def main():
         "rename_agent_rank": Handlers.rename_agent_rank, "rename_chat_rank": Handlers.rename_chat_rank,
         "accept_request": Handlers.accept_request, "reject_request": Handlers.reject_request,
         "ask": Handlers.ask, "backup": backup_handler,
+        "q": Handlers.quit_chat,
     }
     
     for cmd, handler in commands.items():
