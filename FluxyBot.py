@@ -604,7 +604,6 @@ class Keyboards:
     def profile_menu():
         keyboard = [
             [InlineKeyboardButton("🏆 Награды", callback_data="my_rewards")],
-            [InlineKeyboardButton("🎁 Выдать награду", callback_data="give_reward_btn")],
             [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_start")]
         ]
         return InlineKeyboardMarkup(keyboard)
@@ -976,6 +975,12 @@ class Handlers:
         db.add_user(t.id, t.username, t.first_name)
         clan = db.get_user_clan(t.id)
         ud = db.get_user(t.id)
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🏆 Награды", callback_data=f"user_rewards_{t.id}"),
+             InlineKeyboardButton("🎁 Выдать награду", callback_data=f"give_reward_user_{t.id}")]
+        ])
+        
         text = f"""👤 {t.first_name}
 ━━━━━━━━━━━━━━━━
 
@@ -983,7 +988,7 @@ class Handlers:
 🎖️ Ранг: {db.get_bot_rank_name(db.get_bot_admin_level(t.id))}
 🛡️ Клан: {clan['name'] if clan else 'Нет'}
 ⚠️ Варны: {ud.get('warnings', 0) if ud else 0}/3"""
-        await update.message.reply_text(text)
+        await update.message.reply_text(text, reply_markup=keyboard)
 
     @staticmethod
     async def create_clan(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1031,7 +1036,7 @@ class Handlers:
         clan = db.get_user_clan(update.effective_user.id)
         if clan:
             if clan['leader_id'] == update.effective_user.id:
-                await update.message.reply_text("❌ Лидер не может покинуть клан! Передайте клан или удалите его!")
+                await update.message.reply_text("❌ Лидер не может покинуть клан!")
                 return
             db.leave_clan(update.effective_user.id)
             await update.message.reply_text(f"✅ Вы покинули клан «{clan['name']}»!")
@@ -1096,7 +1101,7 @@ class Handlers:
         for admin in db.get_all_bot_admins():
             try:
                 kb = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Принять", callback_data=f"accept_report_{rid}"), InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_report_btn_{rid}")]])
-                await context.bot.send_message(admin["user_id"], f"❗️ Новая жалоба #{rid}\n\n👤 От: {update.effective_user.first_name}\n🆔 ID: {update.effective_user.id}\n🎯 На: {target.first_name}\n🆔 ID: {target.id}\n📝 Причина: {reason}\n🔗 Ссылка: {link}", reply_markup=kb)
+                await context.bot.send_message(admin["user_id"], f"❗️ Новая жалоба #{rid}\n\n👤 От: {update.effective_user.first_name}\n🎯 На: {target.first_name}\n📝 Причина: {reason}\n🔗 Ссылка: {link}", reply_markup=kb)
             except:
                 pass
 
@@ -1117,7 +1122,7 @@ class Handlers:
         reason = " ".join(context.args) if context.args else "Не указана"
         try:
             await context.bot.ban_chat_member(chat_id, target.id)
-            await update.message.reply_text(f"✅ {target.first_name} забанен!\n📝 Причина: {reason}\n👤 Выдал: {user.first_name}")
+            await update.message.reply_text(f"✅ {target.first_name} забанен!\n📝 Причина: {reason}")
         except:
             await update.message.reply_text("❌ Не удалось забанить!")
 
@@ -1148,7 +1153,7 @@ class Handlers:
         target = update.message.reply_to_message.from_user
         try:
             await context.bot.restrict_chat_member(chat_id, target.id, can_send_messages=False)
-            await update.message.reply_text(f"✅ {target.first_name} замучен!\n👤 Выдал: {user.first_name}")
+            await update.message.reply_text(f"✅ {target.first_name} замучен!")
         except:
             await update.message.reply_text("❌ Ошибка!")
 
@@ -1183,7 +1188,7 @@ class Handlers:
             if u["user_id"] == target.id:
                 u["warnings"] = u.get("warnings", 0) + 1
                 db.save_data()
-                await update.message.reply_text(f"⚠️ {target.first_name} получил предупреждение!\n📝 Причина: {reason}\n👤 Выдал: {user.first_name}\n📊 Варнов: {u['warnings']}/3")
+                await update.message.reply_text(f"⚠️ {target.first_name}: {u['warnings']}/3\n📝 {reason}")
                 return
 
     @staticmethod
@@ -1199,7 +1204,7 @@ class Handlers:
             if u["user_id"] == target.id and u.get("warnings", 0) > 0:
                 u["warnings"] -= 1
                 db.save_data()
-                await update.message.reply_text(f"✅ Предупреждение снято с {target.first_name}!")
+                await update.message.reply_text(f"✅ Снято с {target.first_name}!")
                 return
 
     @staticmethod
@@ -1212,7 +1217,7 @@ class Handlers:
             return
         try:
             db.add_bot_admin(int(context.args[0]), int(context.args[1]), update.effective_user.id)
-            await update.message.reply_text(f"✅ Пользователь {context.args[0]} назначен админом уровня {context.args[1]}!")
+            await update.message.reply_text(f"✅ Назначен админом уровня {context.args[1]}!")
         except:
             await update.message.reply_text("❌ Ошибка!")
 
@@ -1222,12 +1227,11 @@ class Handlers:
             await update.message.reply_text("❌ Недостаточно прав!")
             return
         if not context.args:
-            await update.message.reply_text("❌ /permban <ID> <причина>")
+            await update.message.reply_text("❌ /permban <ID>")
             return
         try:
-            reason = " ".join(context.args[1:]) if len(context.args) > 1 else "Не указана"
-            db.add_to_blacklist(int(context.args[0]), reason, update.effective_user.id)
-            await update.message.reply_text(f"✅ {context.args[0]} в ЧС!\n📝 {reason}")
+            db.add_to_blacklist(int(context.args[0]), "Не указана", update.effective_user.id)
+            await update.message.reply_text("✅ В ЧС!")
         except:
             await update.message.reply_text("❌ Ошибка!")
 
@@ -1241,7 +1245,7 @@ class Handlers:
             return
         try:
             db.remove_from_blacklist(int(context.args[0]))
-            await update.message.reply_text(f"✅ {context.args[0]} удален из ЧС!")
+            await update.message.reply_text("✅ Из ЧС!")
         except:
             await update.message.reply_text("❌ Ошибка!")
 
@@ -1257,7 +1261,7 @@ class Handlers:
         sent = 0
         for uid in db.get_all_users():
             try:
-                await context.bot.send_message(uid, f"📨 Рассылка:\n\n{text}")
+                await context.bot.send_message(uid, f"📨 {text}")
                 sent += 1
             except:
                 pass
@@ -1270,17 +1274,17 @@ class Handlers:
             return
         reports = db.get_pending_reports()
         if not reports:
-            await update.message.reply_text("✅ Нет новых жалоб!")
+            await update.message.reply_text("✅ Нет жалоб!")
             return
         text = "❗️ Жалобы:\n\n"
         for r in reports:
-            text += f"🆔 #{r['report_id']}\n📝 {r['reason']}\n━━━━━━━━━━━━━━━━\n"
+            text += f"#{r['report_id']} - {r['reason']}\n"
         await update.message.reply_text(text)
 
     @staticmethod
     async def answer_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not check_bot_access(update.effective_user.id, 'view_reports'):
-            await update.message.reply_text("❌ Недостаточно прав!")
+            await update.message.reply_text("❌ Нет прав!")
             return
         if len(context.args) < 2:
             await update.message.reply_text("❌ /answer_report <ID> <ответ>")
@@ -1291,9 +1295,9 @@ class Handlers:
             db.update_report_status(rid, 'answered', update.effective_user.id)
             for r in db.data["reports"]:
                 if r["report_id"] == rid:
-                    await context.bot.send_message(r["user_id"], f"✅ Ваша жалоба рассмотрена!\n📝 Ответ: {answer}")
+                    await context.bot.send_message(r["user_id"], f"✅ Ответ: {answer}")
                     break
-            await update.message.reply_text("✅ Ответ отправлен!")
+            await update.message.reply_text("✅ Отправлено!")
         except:
             await update.message.reply_text("❌ Ошибка!")
 
@@ -1302,16 +1306,13 @@ class Handlers:
         if not context.args:
             await update.message.reply_text("❌ /reject_report <ID>")
             return
-        try:
-            db.update_report_status(int(context.args[0]), 'rejected', update.effective_user.id)
-            await update.message.reply_text("✅ Жалоба отклонена!")
-        except:
-            await update.message.reply_text("❌ Ошибка!")
+        db.update_report_status(int(context.args[0]), 'rejected', update.effective_user.id)
+        await update.message.reply_text("✅ Отклонено!")
 
     @staticmethod
     async def answer_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not check_agent_access(update.effective_user.id, 'answer_questions'):
-            await update.message.reply_text("❌ Недостаточно прав!")
+            await update.message.reply_text("❌ Нет прав!")
             return
         if len(context.args) < 2:
             await update.message.reply_text("❌ /answer_question <ID> <ответ>")
@@ -1322,9 +1323,9 @@ class Handlers:
             db.update_question_status(qid, 'answered', update.effective_user.id, answer)
             for q in db.data["questions"]:
                 if q["question_id"] == qid:
-                    await context.bot.send_message(q["user_id"], f"❓ Ответ на ваш вопрос:\n\n{answer}")
+                    await context.bot.send_message(q["user_id"], f"❓ Ответ: {answer}")
                     break
-            await update.message.reply_text("✅ Ответ отправлен!")
+            await update.message.reply_text("✅ Отправлено!")
         except:
             await update.message.reply_text("❌ Ошибка!")
 
@@ -1333,33 +1334,27 @@ class Handlers:
         if not context.args:
             await update.message.reply_text("❌ /reject_question <ID>")
             return
-        try:
-            db.update_question_status(int(context.args[0]), 'rejected', update.effective_user.id)
-            await update.message.reply_text("✅ Вопрос отклонен!")
-        except:
-            await update.message.reply_text("❌ Ошибка!")
+        db.update_question_status(int(context.args[0]), 'rejected', update.effective_user.id)
+        await update.message.reply_text("✅ Отклонено!")
 
     @staticmethod
     async def astats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text(f"📊 Админ\n🏆 Уровень: {db.get_bot_admin_level(update.effective_user.id)}")
+        await update.message.reply_text(f"📊 Уровень: {db.get_bot_admin_level(update.effective_user.id)}")
 
     @staticmethod
     async def hstats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text(f"📊 Агент\n🏆 Уровень: {db.get_agent_level(update.effective_user.id)}")
+        await update.message.reply_text(f"📊 Уровень: {db.get_agent_level(update.effective_user.id)}")
 
     @staticmethod
     async def give_rep(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not check_bot_access(update.effective_user.id, 'give_clan_rep'):
-            await update.message.reply_text("❌ Недостаточно прав!")
+            await update.message.reply_text("❌ Нет прав!")
             return
         if len(context.args) < 2:
-            await update.message.reply_text("❌ /give_rep <ID клана> <количество>")
+            await update.message.reply_text("❌ /give_rep <ID> <кол-во>")
             return
-        try:
-            db.add_clan_rating(int(context.args[0]), int(context.args[1]))
-            await update.message.reply_text(f"✅ Клану выдано {context.args[1]} рейтинга!")
-        except:
-            await update.message.reply_text("❌ Ошибка!")
+        db.add_clan_rating(int(context.args[0]), int(context.args[1]))
+        await update.message.reply_text("✅ Выдано!")
 
     @staticmethod
     async def accept_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1367,7 +1362,7 @@ class Handlers:
             await update.message.reply_text("❌ /accept_request <ID>")
             return
         db.update_clan_request(int(context.args[0]), 'accepted')
-        await update.message.reply_text("✅ Заявка принята!")
+        await update.message.reply_text("✅ Принято!")
 
     @staticmethod
     async def reject_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1375,98 +1370,73 @@ class Handlers:
             await update.message.reply_text("❌ /reject_request <ID>")
             return
         db.update_clan_request(int(context.args[0]), 'rejected')
-        await update.message.reply_text("✅ Заявка отклонена!")
+        await update.message.reply_text("✅ Отклонено!")
 
     @staticmethod
     async def ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not context.args:
-            await update.message.reply_text("❌ /ask <текст вопроса>")
+            await update.message.reply_text("❌ /ask <текст>")
             return
         question = " ".join(context.args)
         qid = db.add_question(update.effective_user.id, question)
-        await update.message.reply_text("✅ Вопрос отправлен агентам!")
+        await update.message.reply_text("✅ Вопрос отправлен!")
         for agent in db.get_all_agents():
             try:
                 kb = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Принять", callback_data=f"accept_question_{qid}"), InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_question_btn_{qid}")]])
-                await context.bot.send_message(agent["user_id"], f"❓ Новый вопрос!\n👤 От: {update.effective_user.first_name}\n💬 Вопрос: {question}", reply_markup=kb)
+                await context.bot.send_message(agent["user_id"], f"❓ Вопрос: {question}", reply_markup=kb)
             except:
                 pass
 
     @staticmethod
     async def quit_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
-        
         if db.get_bot_admin_level(user.id) < 10:
             await update.message.reply_text("❌ Только Основатель!")
             return
-        
         if not context.args:
             await update.message.reply_text("❌ /q <ID чата>")
             return
-        
         try:
             chat_id = int(context.args[0])
-        except:
-            await update.message.reply_text("❌ Неверный ID!")
-            return
-        
-        try:
             chat = await context.bot.get_chat(chat_id)
             await context.bot.leave_chat(chat_id)
             db.data["chats"] = [c for c in db.data["chats"] if c["chat_id"] != chat_id]
             db.save_data()
-            await update.message.reply_text(f"✅ Бот вышел из чата «{chat.title}»!")
+            await update.message.reply_text(f"✅ Бот вышел из «{chat.title}»!")
         except Exception as e:
             await update.message.reply_text(f"❌ Ошибка: {str(e)[:100]}")
 
     @staticmethod
     async def delclan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
-        
         if db.get_bot_admin_level(user.id) < 10:
             await update.message.reply_text("❌ Только Основатель!")
             return
-        
         if not context.args:
-            await update.message.reply_text("❌ /delclan <ID клана>")
+            await update.message.reply_text("❌ /delclan <ID>")
             return
-        
         try:
             clan_id = int(context.args[0])
+            clan = db.get_clan_by_id(clan_id)
+            if clan:
+                db.data["clans"] = [c for c in db.data["clans"] if c["clan_id"] != clan_id]
+                for u in db.data["users"]:
+                    if u.get("clan_id") == clan_id:
+                        u["clan_id"] = None
+                db.save_data()
+                await update.message.reply_text(f"✅ Клан «{clan['name']}» удален!")
+            else:
+                await update.message.reply_text("❌ Клан не найден!")
         except:
-            await update.message.reply_text("❌ Неверный ID!")
-            return
-        
-        clan = db.get_clan_by_id(clan_id)
-        if not clan:
-            await update.message.reply_text("❌ Клан не найден!")
-            return
-        
-        db.data["clans"] = [c for c in db.data["clans"] if c["clan_id"] != clan_id]
-        for u in db.data["users"]:
-            if u.get("clan_id") == clan_id:
-                u["clan_id"] = None
-        db.data["clan_requests"] = [r for r in db.data.get("clan_requests", []) if r["clan_id"] != clan_id]
-        db.save_data()
-        await update.message.reply_text(f"✅ Клан «{clan['name']}» удален!")
+            await update.message.reply_text("❌ Ошибка!")
 
     @staticmethod
     async def chat_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
-        
         if db.get_bot_admin_level(user.id) < 10:
             await update.message.reply_text("❌ Только Основатель!")
             return
-        
-        chat_id = update.effective_chat.id
-        chat_title = update.effective_chat.title or "Личные сообщения"
-        chat_type = update.effective_chat.type
-        
-        await update.message.reply_text(
-            f"🆔 ID чата: {chat_id}\n"
-            f"📝 Название: {chat_title}\n"
-            f"📋 Тип: {chat_type}"
-        )
+        await update.message.reply_text(f"🆔 ID чата: {update.effective_chat.id}\n📝 Название: {update.effective_chat.title or 'ЛС'}")
 
 #======================#
 #4 ЧАСТЬ | Button_Handler  #
@@ -1585,39 +1555,51 @@ def main():
                 text += f"🎁 {r['text']}\n👤 От: {r['from_name']}\n━━━━━━━━━━━━━━━━\n"
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_profile())
         
-        elif data == "give_reward_btn":
+        elif data.startswith("user_rewards_"):
+            target_id = int(data.replace("user_rewards_", ""))
+            rewards = db.get_user_rewards(target_id)
+            text = "🏆 Награды:\n━━━━━━━━━━━━━━━━\n\n"
+            if not rewards:
+                text += "Нет наград"
+            for r in rewards:
+                text += f"🎁 {r['text']}\n👤 От: {r['from_name']}\n━━━━━━━━━━━━━━━━\n"
+            await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
+        
+        elif data.startswith("give_reward_user_"):
+            target_id = int(data.replace("give_reward_user_", ""))
             context.user_data['giving_reward'] = True
-            await query.message.reply_text("Отправьте ID пользователя:")
-            return WAITING_FOR_REWARD_USER
+            context.user_data['reward_target'] = target_id
+            await query.message.reply_text("Отправьте текст награды:")
+            return WAITING_FOR_REWARD_TEXT
         
         elif data == "chat_stats":
             await query.message.edit_text("📊 Статистика чата\n\nВыберите период:", reply_markup=Keyboards.chat_stats_menu())
         
         elif data == "top_day":
             top = db.get_top_messages(chat_id, 'day')
-            text = "📊 Топ дня по сообщениям:\n━━━━━━━━━━━━━━━━\n\n"
+            text = "📊 Топ дня:\n━━━━━━━━━━━━━━━━\n\n"
             if not top:
                 text += "Нет данных"
             for i, (uid, name, cnt) in enumerate(top, 1):
-                text += f"{i}. {name}\n💬 Сообщений: {cnt}\n━━━━━━━━━━━━━━━━\n"
+                text += f"{i}. {name}\n💬 {cnt}\n━━━━━━━━━━━━━━━━\n"
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
         elif data == "top_week":
             top = db.get_top_messages(chat_id, 'week')
-            text = "📊 Топ недели по сообщениям:\n━━━━━━━━━━━━━━━━\n\n"
+            text = "📊 Топ недели:\n━━━━━━━━━━━━━━━━\n\n"
             if not top:
                 text += "Нет данных"
             for i, (uid, name, cnt) in enumerate(top, 1):
-                text += f"{i}. {name}\n💬 Сообщений: {cnt}\n━━━━━━━━━━━━━━━━\n"
+                text += f"{i}. {name}\n💬 {cnt}\n━━━━━━━━━━━━━━━━\n"
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
         elif data == "top_all":
             top = db.get_top_messages(chat_id, 'all')
-            text = "📊 Весь топ по сообщениям:\n━━━━━━━━━━━━━━━━\n\n"
+            text = "📊 Весь топ:\n━━━━━━━━━━━━━━━━\n\n"
             if not top:
                 text += "Нет данных"
             for i, (uid, name, cnt) in enumerate(top, 1):
-                text += f"{i}. {name}\n💬 Сообщений: {cnt}\n━━━━━━━━━━━━━━━━\n"
+                text += f"{i}. {name}\n💬 {cnt}\n━━━━━━━━━━━━━━━━\n"
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
         elif data == "clan_menu":
@@ -1657,7 +1639,7 @@ def main():
             clan = db.get_user_clan(user.id)
             if clan:
                 messages = db.get_clan_messages(clan['clan_id'])
-                text = f"✉️ Сообщения клана «{clan['name']}»:\n━━━━━━━━━━━━━━━━\n\n"
+                text = f"✉️ Сообщения клана:\n━━━━━━━━━━━━━━━━\n\n"
                 if not messages:
                     text += "Нет сообщений"
                 for msg in messages:
@@ -1668,49 +1650,49 @@ def main():
             clan = db.get_user_clan(user.id)
             if clan:
                 requests = db.get_clan_requests(clan['clan_id'])
-                text = f"📋 Заявки в клан «{clan['name']}»:\n━━━━━━━━━━━━━━━━\n\n"
+                text = f"📋 Заявки:\n━━━━━━━━━━━━━━━━\n\n"
                 if not requests:
                     text += "Нет заявок"
                 for r in requests:
-                    text += f"🆔 Заявка: {r['request_id']}\n👤 ID: {r['user_id']}\n━━━━━━━━━━━━━━━━\n"
+                    text += f"🆔 {r['request_id']}\n👤 {r['user_id']}\n━━━━━━━━━━━━━━━━\n"
                 await query.message.edit_text(text, reply_markup=Keyboards.back_to_clan())
         
         elif data == "clan_entry":
-            await query.message.edit_text("🔒 Тип входа в клан:", reply_markup=Keyboards.clan_entry_menu())
+            await query.message.edit_text("🔒 Тип входа:", reply_markup=Keyboards.clan_entry_menu())
         
         elif data == "entry_open":
             clan = db.get_user_clan(user.id)
             db.update_clan_entry_type(clan['clan_id'], 'open')
-            await query.message.reply_text("✅ Вход открыт!")
+            await query.message.reply_text("✅ Открыт!")
         
         elif data == "entry_closed":
             clan = db.get_user_clan(user.id)
             db.update_clan_entry_type(clan['clan_id'], 'closed')
-            await query.message.reply_text("✅ Вход закрыт!")
+            await query.message.reply_text("✅ Закрыт!")
         
         elif data == "entry_request":
             clan = db.get_user_clan(user.id)
             db.update_clan_entry_type(clan['clan_id'], 'request')
-            await query.message.reply_text("✅ Вход по заявкам!")
+            await query.message.reply_text("✅ По заявкам!")
         
         elif data == "declare_war":
             context.user_data['war_clan_id'] = True
-            await query.message.reply_text("Отправьте ID вражеского клана:")
+            await query.message.reply_text("ID врага:")
             return WAITING_FOR_WAR_CLAN_ID
         
         elif data == "message_clan":
             context.user_data['clan_msg_to'] = True
-            await query.message.reply_text("Отправьте ID клана:")
+            await query.message.reply_text("ID клана:")
             return WAITING_FOR_CLAN_MSG_CLAN
         
         elif data == "invite_member":
             context.user_data['waiting_invite'] = True
-            await query.message.reply_text("Отправьте ID пользователя:")
+            await query.message.reply_text("ID пользователя:")
             return WAITING_FOR_INVITE_USER
         
         elif data == "transfer_clan":
             context.user_data['transfer_clan'] = True
-            await query.message.reply_text("Отправьте ID нового лидера:")
+            await query.message.reply_text("ID нового лидера:")
             return WAITING_FOR_TRANSFER_CLAN
         
         elif data == "delete_clan":
@@ -1721,95 +1703,93 @@ def main():
                     if u.get("clan_id") == clan["clan_id"]:
                         u["clan_id"] = None
                 db.save_data()
-                await query.message.edit_text("✅ Клан удален!", reply_markup=Keyboards.clan_menu())
+                await query.message.edit_text("✅ Удален!", reply_markup=Keyboards.clan_menu())
         
         elif data == "leave_clan_btn":
             clan = db.get_user_clan(user.id)
             if clan and clan['leader_id'] == user.id:
-                await query.message.reply_text("❌ Лидер не может покинуть клан!")
+                await query.message.reply_text("❌ Лидер не может выйти!")
             else:
                 db.leave_clan(user.id)
-                await query.message.edit_text("✅ Вы вышли из клана!", reply_markup=Keyboards.clan_menu())
+                await query.message.edit_text("✅ Вы вышли!", reply_markup=Keyboards.clan_menu())
             return ConversationHandler.END
         
         elif data == "find_clan_btn":
             context.user_data['waiting_clan_id'] = True
-            await query.message.reply_text("Отправьте ID клана:")
+            await query.message.reply_text("ID клана:")
             return WAITING_FOR_CLAN_ID
         
         elif data == "create_clan_btn":
-            await query.message.reply_text("Используйте: /create_clan <название>")
+            await query.message.reply_text("/create_clan <имя>")
         
         elif data == "clan_list_btn":
-            await query.message.reply_text("Используйте: /clan_top")
+            await query.message.reply_text("/clan_top")
         
         elif data == "admin_panel":
             if db.get_bot_admin_level(user.id) < 1:
-                await query.message.reply_text("❌ Недостаточно прав!")
+                await query.message.reply_text("❌ Нет прав!")
                 return ConversationHandler.END
-            await query.message.edit_text("⭐️ Админ панель бота:", reply_markup=Keyboards.admin_panel())
+            await query.message.edit_text("⭐️ Админ панель:", reply_markup=Keyboards.admin_panel())
         
         elif data == "admins_list":
             admins = db.get_all_bot_admins()
-            text = "👥 Админы бота:\n━━━━━━━━━━━━━━━━\n\n"
+            text = "👥 Админы:\n━━━━━━━━━━━━━━━━\n\n"
             for a in admins:
-                text += f"👤 {a['first_name']}\n🆔 ID: {a['user_id']}\n📊 Уровень: {a['level']}\n━━━━━━━━━━━━━━━━\n"
+                text += f"👤 {a['first_name']}\n🆔 {a['user_id']}\n📊 {a['level']}\n━━━━━━━━━━━━━━━━\n"
             await query.message.edit_text(text, reply_markup=Keyboards.admin_manage_menu())
         
         elif data == "add_admin":
             context.user_data['action'] = 'add_admin'
-            await query.message.reply_text("Отправьте ID пользователя:")
+            await query.message.reply_text("ID:")
             return WAITING_FOR_ADMIN_ID
         
         elif data == "remove_admin":
             context.user_data['action'] = 'remove_admin'
-            await query.message.reply_text("Отправьте ID пользователя:")
+            await query.message.reply_text("ID:")
             return WAITING_FOR_ADMIN_ID
         
         elif data == "change_admin_level":
             context.user_data['action'] = 'change_admin_level'
-            await query.message.reply_text("Отправьте ID пользователя:")
+            await query.message.reply_text("ID:")
             return WAITING_FOR_ADMIN_ID
         
         elif data == "agents_manage":
             agents = db.get_all_agents()
-            text = "🔰 Агенты поддержки:\n━━━━━━━━━━━━━━━━\n\n"
+            text = "🔰 Агенты:\n━━━━━━━━━━━━━━━━\n\n"
             for a in agents:
-                text += f"👤 {a['first_name']}\n🆔 ID: {a['user_id']}\n📊 Уровень: {a['level']}\n━━━━━━━━━━━━━━━━\n"
+                text += f"👤 {a['first_name']}\n🆔 {a['user_id']}\n📊 {a['level']}\n━━━━━━━━━━━━━━━━\n"
             await query.message.edit_text(text, reply_markup=Keyboards.agent_manage_menu())
         
         elif data == "add_agent":
             context.user_data['action'] = 'add_agent'
-            await query.message.reply_text("Отправьте ID агента:")
+            await query.message.reply_text("ID:")
             return WAITING_FOR_AGENT_ID
         
         elif data == "remove_agent":
             context.user_data['action'] = 'remove_agent'
-            await query.message.reply_text("Отправьте ID агента:")
+            await query.message.reply_text("ID:")
             return WAITING_FOR_AGENT_ID
         
         elif data == "change_agent_level":
             context.user_data['action'] = 'change_agent_level'
-            await query.message.reply_text("Отправьте ID агента:")
+            await query.message.reply_text("ID:")
             return WAITING_FOR_AGENT_ID
         
         elif data == "bot_blacklist":
             bl = db.get_blacklist()
-            text = "🚫 Черный список:\n━━━━━━━━━━━━━━━━\n\n"
-            if not bl:
-                text += "Список пуст"
+            text = "🚫 ЧС:\n\n"
             for b in bl:
-                text += f"🆔 {b['user_id']}\n📝 {b['reason']}\n━━━━━━━━━━━━━━━━\n"
+                text += f"🆔 {b['user_id']}\n"
             await query.message.edit_text(text, reply_markup=Keyboards.blacklist_menu())
         
         elif data == "blacklist_add":
             context.user_data['action'] = 'blacklist_add'
-            await query.message.reply_text("Отправьте ID:")
+            await query.message.reply_text("ID:")
             return WAITING_FOR_BLACKLIST_ID
         
         elif data == "blacklist_remove":
             context.user_data['action'] = 'blacklist_remove'
-            await query.message.reply_text("Отправьте ID:")
+            await query.message.reply_text("ID:")
             return WAITING_FOR_BLACKLIST_ID
         
         elif data == "broadcast_menu":
@@ -1817,42 +1797,33 @@ def main():
         
         elif data == "broadcast_pm":
             context.user_data['broadcast_type'] = 'pm'
-            await query.message.reply_text("Отправьте текст рассылки:")
+            await query.message.reply_text("Текст:")
             return WAITING_FOR_BROADCAST_TEXT
         
         elif data == "broadcast_chats":
             context.user_data['broadcast_type'] = 'chats'
-            await query.message.reply_text("Отправьте текст рассылки:")
+            await query.message.reply_text("Текст:")
             return WAITING_FOR_BROADCAST_TEXT
         
         elif data == "bot_stats":
             u, c, cl, a, ag, bl, m = db.get_total_stats()
-            text = f"""📊 Статистика бота:
-━━━━━━━━━━━━━━━━
-
-👥 Пользователей: {u}
-💬 Чатов: {c}
-🛡 Кланов: {cl}
-👑 Админов: {a}
-🔰 Агентов: {ag}
-🚫 В ЧС: {bl}
-📨 Сообщений: {m}"""
+            text = f"📊 Статистика:\n\n👥 {u}\n💬 {c}\n🛡 {cl}\n👑 {a}\n🔰 {ag}\n🚫 {bl}\n📨 {m}"
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
         elif data == "bot_rank_settings":
-            await query.message.edit_text("⚙️ Права рангов бота\n\nВыберите уровень:", reply_markup=Keyboards.rank_levels_for_access('bot'))
+            await query.message.edit_text("⚙️ Права бота\n\nВыберите уровень:", reply_markup=Keyboards.rank_levels_for_access('bot'))
         
         elif data == "agent_settings":
             await query.message.edit_text("⚙️ Права агентов\n\nВыберите уровень:", reply_markup=Keyboards.rank_levels_for_access('agent'))
         
         elif data == "chat_rank_settings":
-            await query.message.edit_text("⚙️ Права рангов чата\n\nВыберите уровень:", reply_markup=Keyboards.rank_levels_for_access('chat'))
+            await query.message.edit_text("⚙️ Права чата\n\nВыберите уровень:", reply_markup=Keyboards.rank_levels_for_access('chat'))
         
         elif data.startswith("rank_access_"):
             parts = data.split("_")
             rt = parts[2]
             lvl = int(parts[3])
-            await query.message.edit_text(f"⚙️ Права уровня {lvl}\n\nНажмите на функцию чтобы включить/выключить:", reply_markup=Keyboards.rank_access_menu(rt, lvl))
+            await query.message.edit_text(f"Права уровня {lvl}:", reply_markup=Keyboards.rank_access_menu(rt, lvl))
         
         elif data.startswith("toggle_access_"):
             parts = data.split("_")
@@ -1860,24 +1831,24 @@ def main():
             lvl = int(parts[3])
             func = parts[4]
             db.toggle_access(rt, lvl, func)
-            await query.message.edit_text(f"⚙️ Права уровня {lvl}\n\nНажмите на функцию чтобы включить/выключить:", reply_markup=Keyboards.rank_access_menu(rt, lvl))
+            await query.message.edit_text(f"Права уровня {lvl}:", reply_markup=Keyboards.rank_access_menu(rt, lvl))
         
         elif data == "bot_rank_names":
             context.user_data['rename_type'] = 'bot'
-            await query.message.edit_text("📝 Ранги бота\n\nВыберите уровень для переименования:", reply_markup=Keyboards.rank_levels('bot'))
+            await query.message.edit_text("Выберите уровень:", reply_markup=Keyboards.rank_levels('bot'))
         
         elif data == "agent_rank_names":
             context.user_data['rename_type'] = 'agent'
-            await query.message.edit_text("📝 Ранги агентов\n\nВыберите уровень для переименования:", reply_markup=Keyboards.rank_levels('agent'))
+            await query.message.edit_text("Выберите уровень:", reply_markup=Keyboards.rank_levels('agent'))
         
         elif data == "chat_rank_names":
             context.user_data['rename_type'] = 'chat'
-            await query.message.edit_text("📝 Ранги чата\n\nВыберите уровень для переименования:", reply_markup=Keyboards.rank_levels('chat'))
+            await query.message.edit_text("Выберите уровень:", reply_markup=Keyboards.rank_levels('chat'))
         
         elif data.startswith("rename_level_"):
             lvl = int(data.replace("rename_level_", ""))
             context.user_data['rename_level'] = lvl
-            await query.message.reply_text(f"Отправьте новое название для уровня {lvl}:")
+            await query.message.reply_text("Новое название:")
             return WAITING_FOR_RENAME
         
         elif data == "chat_panel":
@@ -1893,94 +1864,94 @@ def main():
                     pass
             
             if not is_owner and db.get_bot_admin_level(user.id) < 10:
-                await query.message.reply_text("❌ Недостаточно прав!")
+                await query.message.reply_text("❌ Нет прав!")
                 return ConversationHandler.END
             
-            await query.message.edit_text("👑 Админ панель чата:", reply_markup=Keyboards.chat_panel())
+            await query.message.edit_text("👑 Чат панель:", reply_markup=Keyboards.chat_panel())
         
         elif data == "chat_admins_list":
             await query.message.edit_text("👥 Админы чата", reply_markup=Keyboards.back_to_start())
         
         elif data == "welcome_settings":
             ws = db.get_welcome_settings(chat_id)
-            await query.message.edit_text("👋 Настройки приветствия:", reply_markup=Keyboards.welcome_settings_menu(ws[0] if ws else 0))
+            await query.message.edit_text("👋 Приветствие:", reply_markup=Keyboards.welcome_settings_menu(ws[0] if ws else 0))
         
         elif data == "toggle_welcome":
             ws = db.get_welcome_settings(chat_id)
             db.enable_welcome(chat_id, not (ws[0] if ws else 0))
             ws = db.get_welcome_settings(chat_id)
-            await query.message.edit_text("👋 Настройки приветствия:", reply_markup=Keyboards.welcome_settings_menu(ws[0] if ws else 0))
+            await query.message.edit_text("👋 Приветствие:", reply_markup=Keyboards.welcome_settings_menu(ws[0] if ws else 0))
         
         elif data == "edit_welcome_text":
             context.user_data['editing_welcome'] = chat_id
-            await query.message.reply_text("Отправьте текст приветствия:")
+            await query.message.reply_text("Текст:")
             return WAITING_FOR_WELCOME_TEXT
         
         elif data == "antispam_settings":
             aset = db.get_antispam_settings(chat_id)
-            await query.message.edit_text("🚫 Настройки антиспама:", reply_markup=Keyboards.antispam_settings_menu(aset[0] if aset else 0, aset[1] if aset else 5, db.get_antispam_max_messages(chat_id)))
+            await query.message.edit_text("🚫 Антиспам:", reply_markup=Keyboards.antispam_settings_menu(aset[0] if aset else 0, aset[1] if aset else 5, db.get_antispam_max_messages(chat_id)))
         
         elif data == "toggle_antispam":
             aset = db.get_antispam_settings(chat_id)
             db.enable_antispam(chat_id, not (aset[0] if aset else 0))
             aset = db.get_antispam_settings(chat_id)
-            await query.message.edit_text("🚫 Настройки антиспама:", reply_markup=Keyboards.antispam_settings_menu(aset[0] if aset else 0, aset[1] if aset else 5, db.get_antispam_max_messages(chat_id)))
+            await query.message.edit_text("🚫 Антиспам:", reply_markup=Keyboards.antispam_settings_menu(aset[0] if aset else 0, aset[1] if aset else 5, db.get_antispam_max_messages(chat_id)))
         
         elif data == "change_antispam_interval":
-            await query.message.edit_text("⏱ Выберите интервал:", reply_markup=Keyboards.antispam_interval_menu())
+            await query.message.edit_text("⏱ Интервал:", reply_markup=Keyboards.antispam_interval_menu())
         
         elif data == "change_antispam_messages":
-            await query.message.edit_text("📊 Выберите максимум сообщений:", reply_markup=Keyboards.antispam_messages_menu())
+            await query.message.edit_text("📊 Макс:", reply_markup=Keyboards.antispam_messages_menu())
         
         elif data.startswith("set_antispam_"):
             sec = int(data.replace("set_antispam_", ""))
             db.set_antispam_seconds(chat_id, sec)
-            await query.message.edit_text(f"✅ Интервал: {sec} сек", reply_markup=Keyboards.back_to_start())
+            await query.message.edit_text(f"✅ {sec}с", reply_markup=Keyboards.back_to_start())
         
         elif data.startswith("set_msg_"):
             mx = int(data.replace("set_msg_", ""))
             db.set_antispam_max_messages(chat_id, mx)
-            await query.message.edit_text(f"✅ Максимум: {mx} сообщений", reply_markup=Keyboards.back_to_start())
+            await query.message.edit_text(f"✅ {mx}", reply_markup=Keyboards.back_to_start())
         
         elif data == "help_menu":
-            await query.message.edit_text("🆘 Помощь\n\nВыберите действие:", reply_markup=Keyboards.help_menu())
+            await query.message.edit_text("🆘 Помощь:", reply_markup=Keyboards.help_menu())
         
         elif data == "report_btn":
-            await query.message.reply_text("📝 Чтобы отправить жалобу:\n1. Ответьте на сообщение нарушителя\n2. Напишите /report <причина>")
+            await query.message.reply_text("Ответьте на сообщение и /report <причина>")
         
         elif data == "question_btn":
             context.user_data['asking_question'] = True
-            await query.message.reply_text("❓ Задайте ваш вопрос:")
+            await query.message.reply_text("Задайте вопрос:")
             return WAITING_FOR_QUESTION
         
         elif data.startswith("accept_report_"):
             rid = int(data.replace("accept_report_", ""))
             context.user_data['answering_report'] = rid
-            await query.message.reply_text("Отправьте ответ на жалобу:")
+            await query.message.reply_text("Ответ:")
             return WAITING_FOR_REPORT_ANSWER
         
         elif data.startswith("reject_report_btn_"):
             rid = int(data.replace("reject_report_btn_", ""))
             db.update_report_status(rid, 'rejected', user.id)
-            await query.message.edit_text("✅ Жалоба отклонена!")
+            await query.message.edit_text("✅ Отклонено!")
             return ConversationHandler.END
         
         elif data.startswith("accept_question_"):
             qid = int(data.replace("accept_question_", ""))
             context.user_data['answering_question'] = qid
-            await query.message.reply_text("Отправьте ответ на вопрос:")
+            await query.message.reply_text("Ответ:")
             return WAITING_FOR_QUESTION_ANSWER
         
         elif data.startswith("reject_question_btn_"):
             qid = int(data.replace("reject_question_btn_", ""))
             db.update_question_status(qid, 'rejected', user.id)
-            await query.message.edit_text("✅ Вопрос отклонен!")
+            await query.message.edit_text("✅ Отклонено!")
             return ConversationHandler.END
         
         elif data == "commands_menu":
             user_id = user.id
             is_group = update.effective_chat.type != 'private'
-            text = "📋 Команды:\n━━━━━━━━━━━━━━━━\n\n👤 Основные:\n/start, /profile, /ping, /id, /help\n\n🛡 Кланы:\n/clan, /clan_top, /clan_bonus\n/create_clan, /join_clan, /leave_clan\n\n📝 Прочее:\n/report, /stats, /ask"
+            text = "📋 Команды:\n\n👤 /start, /profile, /ping, /id\n🛡 /clan, /clan_top, /clan_bonus\n📝 /report, /stats, /ask"
             
             if is_group:
                 mods = []
@@ -1992,28 +1963,18 @@ def main():
                 if check_chat_access(user_id, chat_id, 'unwarn'): mods.append("/unwarn")
                 if check_chat_access(user_id, chat_id, 'setadm'): mods.append("/setadm")
                 if mods:
-                    text += "\n\n🔨 Модерация:\n" + ", ".join(mods)
-            
-            admins_cmds = []
-            if check_bot_access(user_id, 'blacklist'): admins_cmds.extend(["/permban", "/unperm"])
-            if check_bot_access(user_id, 'broadcast'): admins_cmds.append("/broadcast")
-            if check_bot_access(user_id, 'view_reports'): admins_cmds.append("/reports")
-            if check_bot_access(user_id, 'give_clan_rep'): admins_cmds.append("/give_rep")
-            if admins_cmds:
-                text += "\n\n⭐️ Админ:\n" + ", ".join(admins_cmds)
+                    text += "\n\n🔨 " + ", ".join(mods)
             
             if db.get_bot_admin_level(user_id) >= 10:
-                text += "\n\n👑 Основатель:\n/backup, /q, /delclan, /chat_id"
+                text += "\n\n👑 /backup, /q, /delclan, /chat_id"
             
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
         elif data == "agents_list":
             agents = db.get_all_agents()
-            text = "🔰 Агенты поддержки:\n━━━━━━━━━━━━━━━━\n\n"
-            if not agents:
-                text += "Нет агентов"
+            text = "🔰 Агенты:\n\n"
             for a in agents:
-                text += f"👤 {a['first_name']}\n📊 Уровень: {a['level']}\n━━━━━━━━━━━━━━━━\n"
+                text += f"👤 {a['first_name']}\n📊 {a['level']}\n"
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
         return ConversationHandler.END
