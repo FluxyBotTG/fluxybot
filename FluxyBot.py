@@ -2072,7 +2072,7 @@ def main():
             for agent in db.get_all_agents():
                 try:
                     kb = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Принять", callback_data=f"accept_question_{qid}"), InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_question_btn_{qid}")]])
-                    await context.bot.send_message(agent["user_id"], f"❓ Новый вопрос!\n👤 От: {user.first_name}\n🆔 ID: {user.id}\n💬 Вопрос: {text}", reply_markup=kb)
+                    await context.bot.send_message(agent["user_id"], f"❓ Новый вопрос!\n👤 От: {user.first_name}\n💬 Вопрос: {text}", reply_markup=kb)
                 except:
                     pass
             return ConversationHandler.END
@@ -2117,10 +2117,6 @@ def main():
             else:
                 db.add_reward(context.user_data['reward_target'], user.id, text)
                 await update.message.reply_text("✅ Награда выдана!")
-                try:
-                    await context.bot.send_message(context.user_data['reward_target'], f"🎁 Вы получили награду!\n📝 {text}")
-                except:
-                    pass
                 context.user_data.clear()
                 return ConversationHandler.END
         
@@ -2147,7 +2143,7 @@ def main():
                         c["leader_id"] = new_leader
                         db.save_data()
                         break
-                await update.message.reply_text(f"✅ Клан передан пользователю {new_leader}!")
+                await update.message.reply_text(f"✅ Клан передан!")
                 context.user_data.pop('transfer_clan', None)
                 return ConversationHandler.END
             except ValueError:
@@ -2163,7 +2159,7 @@ def main():
                 db.update_agent_rank_name(lvl, text)
             else:
                 db.update_chat_rank_name(lvl, text)
-            await update.message.reply_text(f"✅ Уровень {lvl} переименован в «{text}»!")
+            await update.message.reply_text(f"✅ Переименовано в «{text}»!")
             context.user_data.pop('rename_level', None)
             context.user_data.pop('rename_type', None)
             return ConversationHandler.END
@@ -2171,9 +2167,11 @@ def main():
         if 'action' in context.user_data:
             action = context.user_data['action']
             
+            # ============ АДМИНЫ ============
             if action == 'add_admin':
                 try:
-                    context.user_data['target_id'] = int(text)
+                    target_id = int(text)
+                    context.user_data['target_id'] = target_id
                     context.user_data['action'] = 'add_admin_level'
                     await update.message.reply_text("Отправьте уровень (1-9):")
                     return WAITING_FOR_ADMIN_LEVEL
@@ -2209,9 +2207,10 @@ def main():
             
             elif action == 'change_admin_level':
                 try:
-                    context.user_data['target_id'] = int(text)
+                    target_id = int(text)
+                    context.user_data['target_id'] = target_id
                     context.user_data['action'] = 'change_admin_level_value'
-                    await update.message.reply_text("Отправьте новый уровень:")
+                    await update.message.reply_text("Отправьте новый уровень (1-9):")
                     return WAITING_FOR_ADMIN_LEVEL
                 except ValueError:
                     await update.message.reply_text("❌ Неверный ID!")
@@ -2223,7 +2222,8 @@ def main():
                     if level < 1 or level > 9:
                         await update.message.reply_text("❌ Уровень от 1 до 9!")
                         return WAITING_FOR_ADMIN_LEVEL
-                    db.update_bot_admin_level(context.user_data['target_id'], level)
+                    target_id = context.user_data.get('target_id')
+                    db.update_bot_admin_level(target_id, level)
                     await update.message.reply_text(f"✅ Уровень обновлен на {level}!")
                     context.user_data.clear()
                     return ConversationHandler.END
@@ -2231,9 +2231,11 @@ def main():
                     await update.message.reply_text("❌ Неверный уровень!")
                     return WAITING_FOR_ADMIN_LEVEL
             
+            # ============ АГЕНТЫ ============
             elif action == 'add_agent':
                 try:
-                    context.user_data['target_id'] = int(text)
+                    target_id = int(text)
+                    context.user_data['target_id'] = target_id
                     context.user_data['action'] = 'add_agent_level'
                     await update.message.reply_text("Отправьте уровень (1-3):")
                     return WAITING_FOR_AGENT_LEVEL
@@ -2269,9 +2271,10 @@ def main():
             
             elif action == 'change_agent_level':
                 try:
-                    context.user_data['target_id'] = int(text)
+                    target_id = int(text)
+                    context.user_data['target_id'] = target_id
                     context.user_data['action'] = 'change_agent_level_value'
-                    await update.message.reply_text("Отправьте новый уровень:")
+                    await update.message.reply_text("Отправьте новый уровень (1-3):")
                     return WAITING_FOR_AGENT_LEVEL
                 except ValueError:
                     await update.message.reply_text("❌ Неверный ID!")
@@ -2283,7 +2286,8 @@ def main():
                     if level < 1 or level > 3:
                         await update.message.reply_text("❌ Уровень от 1 до 3!")
                         return WAITING_FOR_AGENT_LEVEL
-                    db.update_agent_level(context.user_data['target_id'], level)
+                    target_id = context.user_data.get('target_id')
+                    db.update_agent_level(target_id, level)
                     await update.message.reply_text(f"✅ Уровень обновлен на {level}!")
                     context.user_data.clear()
                     return ConversationHandler.END
@@ -2291,9 +2295,11 @@ def main():
                     await update.message.reply_text("❌ Неверный уровень!")
                     return WAITING_FOR_AGENT_LEVEL
             
+            # ============ ЧЕРНЫЙ СПИСОК ============
             elif action == 'blacklist_add':
                 try:
-                    context.user_data['target_id'] = int(text)
+                    target_id = int(text)
+                    context.user_data['target_id'] = target_id
                     context.user_data['action'] = 'blacklist_add_reason'
                     await update.message.reply_text("Отправьте причину:")
                     return WAITING_FOR_BLACKLIST_REASON
@@ -2303,14 +2309,15 @@ def main():
             
             elif action == 'blacklist_add_reason':
                 db.add_to_blacklist(context.user_data['target_id'], text, user.id)
-                await update.message.reply_text(f"✅ Пользователь в ЧС!\n📝 {text}")
+                await update.message.reply_text(f"✅ В ЧС!\n📝 {text}")
                 context.user_data.clear()
                 return ConversationHandler.END
             
             elif action == 'blacklist_remove':
                 try:
-                    db.remove_from_blacklist(int(text))
-                    await update.message.reply_text("✅ Удален из ЧС!")
+                    target_id = int(text)
+                    db.remove_from_blacklist(target_id)
+                    await update.message.reply_text(f"✅ Удален из ЧС!")
                     context.user_data.clear()
                     return ConversationHandler.END
                 except ValueError:
@@ -2322,18 +2329,18 @@ def main():
             if context.user_data['broadcast_type'] == 'pm':
                 for uid in db.get_all_users():
                     try:
-                        await context.bot.send_message(uid, f"📨 Рассылка:\n\n{text}")
+                        await context.bot.send_message(uid, f"📨 {text}")
                         sent += 1
                     except:
                         pass
             else:
                 for c in db.data["chats"]:
                     try:
-                        await context.bot.send_message(c["chat_id"], f"📨 Рассылка:\n\n{text}")
+                        await context.bot.send_message(c["chat_id"], f"📨 {text}")
                         sent += 1
                     except:
                         pass
-            await update.message.reply_text(f"✅ Рассылка завершена!\n📊 Отправлено: {sent}")
+            await update.message.reply_text(f"✅ Отправлено: {sent}")
             context.user_data.clear()
             return ConversationHandler.END
         
@@ -2342,10 +2349,10 @@ def main():
                 context.user_data['enemy_clan_id'] = int(text)
                 context.user_data.pop('war_clan_id')
                 context.user_data['waiting_war_rating'] = True
-                await update.message.reply_text("Отправьте ставку рейтинга:")
+                await update.message.reply_text("Ставка:")
                 return WAITING_FOR_WAR_RATING
             except ValueError:
-                await update.message.reply_text("❌ Неверный ID!")
+                await update.message.reply_text("❌ ID!")
                 return WAITING_FOR_WAR_CLAN_ID
         
         if 'waiting_war_rating' in context.user_data:
@@ -2354,27 +2361,27 @@ def main():
                 clan = db.get_user_clan(user.id)
                 result = db.declare_war(clan['clan_id'], context.user_data['enemy_clan_id'], rating)
                 winner = result['clan1_name'] if result['winner_id'] == clan['clan_id'] else result['clan2_name']
-                await update.message.reply_text(f"⚔ Война завершена!\n🏆 Победитель: {winner}!\n💰 Ставка: {rating}")
+                await update.message.reply_text(f"⚔ Победитель: {winner}!")
                 context.user_data.clear()
                 return ConversationHandler.END
             except ValueError:
-                await update.message.reply_text("❌ Неверная ставка!")
+                await update.message.reply_text("❌ Ставка!")
                 return WAITING_FOR_WAR_RATING
         
         if 'clan_msg_to' in context.user_data:
             try:
                 context.user_data['clan_msg_to'] = int(text)
                 context.user_data['waiting_clan_msg_text'] = True
-                await update.message.reply_text("Отправьте текст сообщения:")
+                await update.message.reply_text("Текст:")
                 return WAITING_FOR_CLAN_MSG_TEXT
             except ValueError:
-                await update.message.reply_text("❌ Неверный ID!")
+                await update.message.reply_text("❌ ID!")
                 return WAITING_FOR_CLAN_MSG_CLAN
         
         if 'waiting_clan_msg_text' in context.user_data:
             clan = db.get_user_clan(user.id)
             db.add_clan_message(clan['clan_id'], context.user_data['clan_msg_to'], user.id, text)
-            await update.message.reply_text("✅ Сообщение отправлено!")
+            await update.message.reply_text("✅ Отправлено!")
             context.user_data.clear()
             return ConversationHandler.END
         
@@ -2382,11 +2389,11 @@ def main():
             try:
                 clan = db.get_user_clan(user.id)
                 db.join_clan(int(text), clan['clan_id'])
-                await update.message.reply_text(f"✅ Пользователь {text} приглашен!")
+                await update.message.reply_text("✅ Приглашен!")
                 context.user_data.clear()
                 return ConversationHandler.END
             except ValueError:
-                await update.message.reply_text("❌ Неверный ID!")
+                await update.message.reply_text("❌ ID!")
                 return WAITING_FOR_INVITE_USER
         
         return ConversationHandler.END
