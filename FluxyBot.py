@@ -179,7 +179,12 @@ class Database:
                 return
     
     def create_clan(self, name, leader_id):
-        clan_id = len(self.data["clans"]) + 1
+        # Находим свободный ID
+        used_ids = {c["clan_id"] for c in self.data["clans"]}
+        clan_id = 1
+        while clan_id in used_ids:
+            clan_id += 1
+        
         self.data["clans"].append({
             "clan_id": clan_id, "name": name, "leader_id": leader_id,
             "rating": 0, "entry_type": "open",
@@ -437,11 +442,9 @@ class Database:
                 else:
                     s["min_level"] = level
                 self.save_data()
-                print(f"✅ Доступ обновлен: {rank_type}/{function} -> {s['min_level']}")
                 return
         self.data["access_settings"].append({"type": rank_type, "name": function, "min_level": level})
         self.save_data()
-        print(f"✅ Доступ добавлен: {rank_type}/{function} -> {level}")
     
     def get_total_stats(self):
         return (len(self.data["users"]), len(self.data["chats"]), len(self.data["clans"]), len(self.data["bot_admins"]), len(self.data["support_agents"]), len(self.data["bot_blacklist"]), len(self.data.get("chat_messages", [])))
@@ -499,8 +502,7 @@ def check_bot_access(user_id, function):
     if user_id == SUPER_ADMIN_ID:
         return True
     user_level = db.get_bot_admin_level(user_id)
-    access = db.get_rank_access('bot', user_level)
-    return function in access
+    return function in db.get_rank_access('bot', user_level)
 
 def check_chat_access(user_id, chat_id, function):
     if user_id == SUPER_ADMIN_ID:
@@ -508,15 +510,13 @@ def check_chat_access(user_id, chat_id, function):
     level = db.get_bot_admin_level(user_id)
     if level >= 10:
         return True
-    access = db.get_rank_access('chat', level)
-    return function in access
+    return function in db.get_rank_access('chat', level)
 
 def check_agent_access(user_id, function):
     if user_id == SUPER_ADMIN_ID:
         return True
     user_level = db.get_agent_level(user_id)
-    access = db.get_rank_access('agent', user_level)
-    return function in access
+    return function in db.get_rank_access('agent', user_level)
     
 #==================#
 #2 ЧАСТЬ | Keyboards #
@@ -2116,7 +2116,7 @@ def main():
                     return WAITING_FOR_REWARD_USER
             else:
                 db.add_reward(context.user_data['reward_target'], user.id, text)
-                await update.message.reply_text(f"✅ Награда выдана!")
+                await update.message.reply_text("✅ Награда выдана!")
                 try:
                     await context.bot.send_message(context.user_data['reward_target'], f"🎁 Вы получили награду!\n📝 {text}")
                 except:
@@ -2178,13 +2178,18 @@ def main():
                     await update.message.reply_text("Отправьте уровень (1-9):")
                     return WAITING_FOR_ADMIN_LEVEL
                 except ValueError:
-                    await update.message.reply_text("❌ Неверный ID!")
+                    await update.message.reply_text("❌ Неверный ID! Введите число:")
                     return WAITING_FOR_ADMIN_ID
             
             elif action == 'add_admin_level':
                 try:
-                    db.add_bot_admin(context.user_data['target_id'], int(text), user.id)
-                    await update.message.reply_text(f"✅ Админ добавлен!")
+                    level = int(text)
+                    if level < 1 or level > 9:
+                        await update.message.reply_text("❌ Уровень от 1 до 9!")
+                        return WAITING_FOR_ADMIN_LEVEL
+                    target_id = context.user_data.get('target_id')
+                    db.add_bot_admin(target_id, level, user.id)
+                    await update.message.reply_text(f"✅ Админ {target_id} добавлен с уровнем {level}!")
                     context.user_data.clear()
                     return ConversationHandler.END
                 except ValueError:
@@ -2193,8 +2198,9 @@ def main():
             
             elif action == 'remove_admin':
                 try:
-                    db.remove_bot_admin(int(text))
-                    await update.message.reply_text("✅ Админ удален!")
+                    target_id = int(text)
+                    db.remove_bot_admin(target_id)
+                    await update.message.reply_text(f"✅ Админ {target_id} удален!")
                     context.user_data.clear()
                     return ConversationHandler.END
                 except ValueError:
@@ -2213,8 +2219,12 @@ def main():
             
             elif action == 'change_admin_level_value':
                 try:
-                    db.update_bot_admin_level(context.user_data['target_id'], int(text))
-                    await update.message.reply_text("✅ Уровень обновлен!")
+                    level = int(text)
+                    if level < 1 or level > 9:
+                        await update.message.reply_text("❌ Уровень от 1 до 9!")
+                        return WAITING_FOR_ADMIN_LEVEL
+                    db.update_bot_admin_level(context.user_data['target_id'], level)
+                    await update.message.reply_text(f"✅ Уровень обновлен на {level}!")
                     context.user_data.clear()
                     return ConversationHandler.END
                 except ValueError:
@@ -2233,8 +2243,13 @@ def main():
             
             elif action == 'add_agent_level':
                 try:
-                    db.add_agent(context.user_data['target_id'], int(text))
-                    await update.message.reply_text("✅ Агент добавлен!")
+                    level = int(text)
+                    if level < 1 or level > 3:
+                        await update.message.reply_text("❌ Уровень от 1 до 3!")
+                        return WAITING_FOR_AGENT_LEVEL
+                    target_id = context.user_data.get('target_id')
+                    db.add_agent(target_id, level)
+                    await update.message.reply_text(f"✅ Агент {target_id} добавлен с уровнем {level}!")
                     context.user_data.clear()
                     return ConversationHandler.END
                 except ValueError:
@@ -2243,8 +2258,9 @@ def main():
             
             elif action == 'remove_agent':
                 try:
-                    db.remove_agent(int(text))
-                    await update.message.reply_text("✅ Агент удален!")
+                    target_id = int(text)
+                    db.remove_agent(target_id)
+                    await update.message.reply_text(f"✅ Агент {target_id} удален!")
                     context.user_data.clear()
                     return ConversationHandler.END
                 except ValueError:
@@ -2263,8 +2279,12 @@ def main():
             
             elif action == 'change_agent_level_value':
                 try:
-                    db.update_agent_level(context.user_data['target_id'], int(text))
-                    await update.message.reply_text("✅ Уровень обновлен!")
+                    level = int(text)
+                    if level < 1 or level > 3:
+                        await update.message.reply_text("❌ Уровень от 1 до 3!")
+                        return WAITING_FOR_AGENT_LEVEL
+                    db.update_agent_level(context.user_data['target_id'], level)
+                    await update.message.reply_text(f"✅ Уровень обновлен на {level}!")
                     context.user_data.clear()
                     return ConversationHandler.END
                 except ValueError:
