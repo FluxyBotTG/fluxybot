@@ -35,6 +35,7 @@ WAITING_FOR_WELCOME_TEXT = 30
 WAITING_FOR_CLAN_ID = 31
 WAITING_FOR_REWARD_USER = 32
 WAITING_FOR_REWARD_TEXT = 33
+WAITING_FOR_ACCESS_LEVEL = 34
 
 # JSONBin настройки
 JSONBIN_API_KEY = "$2a$10$oQFi.r.b4KoxCupZTsKdzeH6ZktFfBr12SBHnTXgkmRwGBJr1bRdm"
@@ -895,6 +896,61 @@ class Keyboards:
             [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_start")]
         ]
         return InlineKeyboardMarkup(keyboard)
+
+    @staticmethod
+    def bot_access_functions():
+        keyboard = [
+            [InlineKeyboardButton("👥 Управление админами", callback_data="bot_access_manage_admins")],
+            [InlineKeyboardButton("🔰 Управление агентами", callback_data="bot_access_manage_agents")],
+            [InlineKeyboardButton("🚫 Черный список", callback_data="bot_access_blacklist")],
+            [InlineKeyboardButton("⭐️ Выдача репутации", callback_data="bot_access_give_clan_rep")],
+            [InlineKeyboardButton("🗂 Просмотр чатов", callback_data="bot_access_view_chats")],
+            [InlineKeyboardButton("📊 Статистика", callback_data="bot_access_stats")],
+            [InlineKeyboardButton("📨 Рассылка", callback_data="bot_access_broadcast")],
+            [InlineKeyboardButton("❗️ Просмотр жалоб", callback_data="bot_access_view_reports")],
+            [InlineKeyboardButton("🎁 Выдача наград", callback_data="bot_access_give_reward")],
+            [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_start")]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+    
+    @staticmethod
+    def agent_access_functions():
+        keyboard = [
+            [InlineKeyboardButton("❓ Просмотр вопросов", callback_data="agent_access_view_questions")],
+            [InlineKeyboardButton("✉️ Ответ на вопросы", callback_data="agent_access_answer_questions")],
+            [InlineKeyboardButton("📊 Статистика агента", callback_data="agent_access_hstats")],
+            [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_start")]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+    
+    @staticmethod
+    def chat_access_functions():
+        keyboard = [
+            [InlineKeyboardButton("🔨 Бан", callback_data="chat_access_ban")],
+            [InlineKeyboardButton("🔓 Разбан", callback_data="chat_access_unban")],
+            [InlineKeyboardButton("🔇 Мут", callback_data="chat_access_mute")],
+            [InlineKeyboardButton("🔊 Размут", callback_data="chat_access_unmute")],
+            [InlineKeyboardButton("⚠️ Предупреждение", callback_data="chat_access_warn")],
+            [InlineKeyboardButton("✅ Снятие предупреждения", callback_data="chat_access_unwarn")],
+            [InlineKeyboardButton("👑 Назначение админов", callback_data="chat_access_setadm")],
+            [InlineKeyboardButton("👋 Приветствие", callback_data="chat_access_welcome_settings")],
+            [InlineKeyboardButton("🚫 Антиспам", callback_data="chat_access_antispam_settings")],
+            [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_start")]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+    
+    @staticmethod
+    def access_levels():
+        keyboard = [
+            [InlineKeyboardButton("0", callback_data="set_level_0"), InlineKeyboardButton("1", callback_data="set_level_1")],
+            [InlineKeyboardButton("2", callback_data="set_level_2"), InlineKeyboardButton("3", callback_data="set_level_3")],
+            [InlineKeyboardButton("4", callback_data="set_level_4"), InlineKeyboardButton("5", callback_data="set_level_5")],
+            [InlineKeyboardButton("6", callback_data="set_level_6"), InlineKeyboardButton("7", callback_data="set_level_7")],
+            [InlineKeyboardButton("8", callback_data="set_level_8"), InlineKeyboardButton("9", callback_data="set_level_9")],
+            [InlineKeyboardButton("10", callback_data="set_level_10")],
+            [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_start")]
+        ]
+        return InlineKeyboardMarkup(keyboard)
         
 #==================#
 #3 ЧАСТЬ | Handler      #
@@ -1008,7 +1064,7 @@ class Handlers:
 /unwarn - Снять предупреждение
 /setadm - Назначить админа"""
         
-        if bot_level >= 10:
+        if bot_level >= 5:
             text += """
 
 ⭐️ Админ команды:
@@ -1022,7 +1078,6 @@ class Handlers:
             text += """
 
 👑 Команды Основателя:
-/set_access - Настройка прав
 /rename_bot_rank - Переименовать ранг бота
 /rename_agent_rank - Переименовать ранг агента
 /rename_chat_rank - Переименовать ранг чата
@@ -1257,8 +1312,8 @@ class Handlers:
         chat_id = update.effective_chat.id
         
         if update.effective_chat.type == 'private':
-        	await update.message.reply_text("❌ Эта команда работает только в группе!")
-        	return
+            await update.message.reply_text("❌ Эта команда работает только в группе!")
+            return
         
         if not check_chat_access(user.id, chat_id, 'ban'):
             await update.message.reply_text("❌ Недостаточно прав!")
@@ -1291,8 +1346,8 @@ class Handlers:
         chat_id = update.effective_chat.id
         
         if update.effective_chat.type == 'private':
-        	await update.message.reply_text("❌ Эта команда работает только в группе!")
-        	return
+            await update.message.reply_text("❌ Эта команда работает только в группе!")
+            return
         
         if not check_chat_access(user.id, chat_id, 'unban'):
             await update.message.reply_text("❌ Недостаточно прав!")
@@ -1322,8 +1377,8 @@ class Handlers:
         chat_id = update.effective_chat.id
         
         if update.effective_chat.type == 'private':
-        	await update.message.reply_text("❌ Эта команда работает только в группе!")
-        	return
+            await update.message.reply_text("❌ Эта команда работает только в группе!")
+            return
         
         if not check_chat_access(user.id, chat_id, 'mute'):
             await update.message.reply_text("❌ Недостаточно прав!")
@@ -1367,8 +1422,8 @@ class Handlers:
         chat_id = update.effective_chat.id
         
         if update.effective_chat.type == 'private':
-        	await update.message.reply_text("❌ Эта команда работает только в группе!")
-        	return
+            await update.message.reply_text("❌ Эта команда работает только в группе!")
+            return
         
         if not check_chat_access(user.id, chat_id, 'unmute'):
             await update.message.reply_text("❌ Недостаточно прав!")
@@ -1398,8 +1453,8 @@ class Handlers:
         chat_id = update.effective_chat.id
         
         if update.effective_chat.type == 'private':
-        	await update.message.reply_text("❌ Эта команда работает только в группе!")
-        	return
+            await update.message.reply_text("❌ Эта команда работает только в группе!")
+            return
         
         if not check_chat_access(user.id, chat_id, 'warn'):
             await update.message.reply_text("❌ Недостаточно прав!")
@@ -1438,8 +1493,8 @@ class Handlers:
         chat_id = update.effective_chat.id
         
         if update.effective_chat.type == 'private':
-        	await update.message.reply_text("❌ Эта команда работает только в группе!")
-        	return
+            await update.message.reply_text("❌ Эта команда работает только в группе!")
+            return
         
         if not check_chat_access(user.id, chat_id, 'unwarn'):
             await update.message.reply_text("❌ Недостаточно прав!")
@@ -1460,8 +1515,8 @@ class Handlers:
         chat_id = update.effective_chat.id
         
         if update.effective_chat.type == 'private':
-        	await update.message.reply_text("❌ Эта команда работает только в группе!")
-        	return
+            await update.message.reply_text("❌ Эта команда работает только в группе!")
+            return
         
         if not check_chat_access(user.id, chat_id, 'setadm'):
             await update.message.reply_text("❌ Недостаточно прав!")
@@ -1799,29 +1854,6 @@ class Handlers:
         await update.message.reply_text(f"✅ Ранг {level} → «{name}»!")
 
     @staticmethod
-    async def set_access_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        user = update.effective_user
-        
-        if db.get_bot_admin_level(user.id) < 10:
-            await update.message.reply_text("❌ Только Основатель!")
-            return
-        
-        if len(context.args) < 3:
-            await update.message.reply_text("❌ /set_access <bot/agent/chat> <функция> <уровень>")
-            return
-        
-        setting_type = context.args[0].lower()
-        setting_name = context.args[1]
-        try:
-            min_level = int(context.args[2])
-        except:
-            await update.message.reply_text("❌ Неверный уровень!")
-            return
-        
-        db.set_access_level(setting_type, setting_name, min_level)
-        await update.message.reply_text(f"✅ Доступ установлен: {setting_type}/{setting_name} → уровень {min_level}")
-
-    @staticmethod
     async def accept_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
         clan = db.get_user_clan(user.id)
@@ -1992,10 +2024,7 @@ class Handlers:
             if not rewards:
                 text += "Нет наград"
             for reward in rewards:
-                text += f"🎁 {reward[3]}\n"
-                text += f"👤 От: {reward[8] or 'Пользователь'}\n"
-                text += f"📅 {reward[4][:10]}\n"
-                text += f"━━━━━━━━━━━━━━━━\n"
+                text += f"🎁 {reward[3]}\n👤 От: {reward[8] or 'Пользователь'}\n📅 {reward[4][:10]}\n━━━━━━━━━━━━━━━━\n"
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_profile())
         
         elif data == "give_reward_btn":
@@ -2013,9 +2042,7 @@ class Handlers:
             if not top:
                 text += "Нет данных"
             for i, user_stat in enumerate(top, 1):
-                text += f"{i}. {user_stat[1] or 'Пользователь'}\n"
-                text += f"💬 Сообщений: {user_stat[2]}\n"
-                text += f"━━━━━━━━━━━━━━━━\n"
+                text += f"{i}. {user_stat[1] or 'Пользователь'}\n💬 Сообщений: {user_stat[2]}\n━━━━━━━━━━━━━━━━\n"
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
         elif data == "top_week":
@@ -2024,9 +2051,7 @@ class Handlers:
             if not top:
                 text += "Нет данных"
             for i, user_stat in enumerate(top, 1):
-                text += f"{i}. {user_stat[1] or 'Пользователь'}\n"
-                text += f"💬 Сообщений: {user_stat[2]}\n"
-                text += f"━━━━━━━━━━━━━━━━\n"
+                text += f"{i}. {user_stat[1] or 'Пользователь'}\n💬 Сообщений: {user_stat[2]}\n━━━━━━━━━━━━━━━━\n"
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
         elif data == "top_all":
@@ -2035,9 +2060,7 @@ class Handlers:
             if not top:
                 text += "Нет данных"
             for i, user_stat in enumerate(top, 1):
-                text += f"{i}. {user_stat[1] or 'Пользователь'}\n"
-                text += f"💬 Сообщений: {user_stat[2]}\n"
-                text += f"━━━━━━━━━━━━━━━━\n"
+                text += f"{i}. {user_stat[1] or 'Пользователь'}\n💬 Сообщений: {user_stat[2]}\n━━━━━━━━━━━━━━━━\n"
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
         # Клан
@@ -2065,10 +2088,7 @@ class Handlers:
                 if not requests:
                     text += "Нет заявок"
                 for req in requests:
-                    text += f"🆔 Заявка: {req[0]}\n"
-                    text += f"👤 {req[7] or 'Пользователь'}\n"
-                    text += f"🆔 ID: {req[2]}\n"
-                    text += f"━━━━━━━━━━━━━━━━\n"
+                    text += f"🆔 Заявка: {req[0]}\n👤 {req[7] or 'Пользователь'}\n🆔 ID: {req[2]}\n━━━━━━━━━━━━━━━━\n"
                 text += "\n/accept_request <ID> - принять\n/reject_request <ID> - отклонить"
                 await query.message.edit_text(text, reply_markup=Keyboards.back_to_clan())
         
@@ -2078,9 +2098,7 @@ class Handlers:
                 members = db.get_clan_members(clan[0])
                 text = f"👥 Участники клана «{clan[1]}»:\n━━━━━━━━━━━━━━━━\n\n"
                 for member in members:
-                    text += f"👤 {member[2] or 'Пользователь'}\n"
-                    text += f"🆔 ID: {member[0]}\n"
-                    text += f"━━━━━━━━━━━━━━━━\n"
+                    text += f"👤 {member[2] or 'Пользователь'}\n🆔 ID: {member[0]}\n━━━━━━━━━━━━━━━━\n"
                 await query.message.edit_text(text, reply_markup=Keyboards.back_to_clan())
         
         elif data == "clan_messages":
@@ -2091,10 +2109,7 @@ class Handlers:
                 if not messages:
                     text += "Нет сообщений"
                 for msg in messages[:10]:
-                    text += f"📩 От: {msg[7] or 'Клан'}\n"
-                    text += f"💬 {msg[4]}\n"
-                    text += f"📅 {msg[5][:10]}\n"
-                    text += f"━━━━━━━━━━━━━━━━\n"
+                    text += f"📩 От: {msg[7] or 'Клан'}\n💬 {msg[4]}\n📅 {msg[5][:10]}\n━━━━━━━━━━━━━━━━\n"
                 await query.message.edit_text(text, reply_markup=Keyboards.back_to_clan())
         
         elif data == "clan_entry":
@@ -2166,10 +2181,7 @@ class Handlers:
             admins = db.get_all_bot_admins()
             text = "👥 Админы бота:\n━━━━━━━━━━━━━━━━\n\n"
             for admin in admins:
-                text += f"👤 {admin[5] or 'Пользователь'}\n"
-                text += f"🆔 ID: {admin[0]}\n"
-                text += f"📊 Уровень: {admin[1]}\n"
-                text += f"━━━━━━━━━━━━━━━━\n"
+                text += f"👤 {admin[5] or 'Пользователь'}\n🆔 ID: {admin[0]}\n📊 Уровень: {admin[1]}\n━━━━━━━━━━━━━━━━\n"
             await query.message.edit_text(text, reply_markup=Keyboards.admin_manage_menu())
         
         elif data == "add_admin":
@@ -2191,10 +2203,7 @@ class Handlers:
             agents = db.get_all_agents()
             text = "🔰 Агенты поддержки:\n━━━━━━━━━━━━━━━━\n\n"
             for agent in agents:
-                text += f"👤 {agent[6] or 'Агент'}\n"
-                text += f"🆔 ID: {agent[0]}\n"
-                text += f"📊 Уровень: {agent[1]}\n"
-                text += f"━━━━━━━━━━━━━━━━\n"
+                text += f"👤 {agent[6] or 'Агент'}\n🆔 ID: {agent[0]}\n📊 Уровень: {agent[1]}\n━━━━━━━━━━━━━━━━\n"
             await query.message.edit_text(text, reply_markup=Keyboards.agent_manage_menu())
         
         elif data == "add_agent":
@@ -2218,10 +2227,7 @@ class Handlers:
             if not blacklist:
                 text += "Список пуст"
             for item in blacklist:
-                text += f"👤 {item[5] or 'Пользователь'}\n"
-                text += f"🆔 ID: {item[0]}\n"
-                text += f"📝 Причина: {item[1]}\n"
-                text += f"━━━━━━━━━━━━━━━━\n"
+                text += f"👤 {item[5] or 'Пользователь'}\n🆔 ID: {item[0]}\n📝 Причина: {item[1]}\n━━━━━━━━━━━━━━━━\n"
             await query.message.edit_text(text, reply_markup=Keyboards.blacklist_menu())
         
         elif data == "blacklist_add":
@@ -2275,56 +2281,35 @@ class Handlers:
 ━━━━━━━━━━━━━━━━
 
 👤 Основные:
-/start
-/profile
-/ping
-/id
-/help
+/start, /profile, /ping, /id, /help
 
 🛡 Кланы:
-/clan
-/clan_top
-/clan_bonus
-/create_clan
-/join_clan
-/leave_clan
+/clan, /clan_top, /clan_bonus
+/create_clan, /join_clan, /leave_clan
 
 📝 Прочее:
-/report
-/stats
-/ask"""
+/report, /stats, /ask"""
             
             if bot_level >= 1:
                 text += """
 
 🔨 Модерация:
-/ban
-/unban
-/mute
-/unmute
-/warn
-/unwarn
-/setadm"""
+/ban, /unban, /mute, /unmute
+/warn, /unwarn, /setadm"""
             
             if bot_level >= 5:
                 text += """
 
 ⭐️ Админ:
-/permban
-/unperm
-/broadcast
-/reports
-/give_rep"""
+/permban, /unperm, /broadcast
+/reports, /give_rep"""
             
             if bot_level >= 10:
                 text += """
 
 👑 Основатель:
-/set_access
-/rename_bot_rank
-/rename_agent_rank
-/rename_chat_rank
-/backup"""
+/rename_bot_rank, /rename_agent_rank
+/rename_chat_rank, /backup"""
             
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
@@ -2344,21 +2329,50 @@ class Handlers:
             text += "\nДля переименования:\n/rename_agent_rank <уровень> <название>"
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
+        # ПРАВА ПО КНОПКАМ
         elif data == "bot_rank_settings":
-            text = "⚙️ Права рангов бота:\n━━━━━━━━━━━━━━━━\n\n"
-            text += "Используйте команду:\n/set_access bot <функция> <уровень>\n\n"
-            text += "Функции:\n"
-            text += "manage_admins, manage_agents, blacklist\n"
-            text += "give_clan_rep, view_chats, stats\n"
-            text += "broadcast, view_reports, give_reward"
-            await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
+            await query.message.edit_text("⚙️ Права рангов бота:\n\nВыберите функцию:", reply_markup=Keyboards.bot_access_functions())
+        
+        elif data.startswith("bot_access_"):
+            function = data.replace("bot_access_", "")
+            context.user_data['setting_type'] = 'bot'
+            context.user_data['setting_name'] = function
+            await query.message.edit_text(f"Выберите минимальный уровень для «{function}»:", reply_markup=Keyboards.access_levels())
         
         elif data == "agent_settings":
-            text = "⚙️ Права агентов:\n━━━━━━━━━━━━━━━━\n\n"
-            text += "Используйте команду:\n/set_access agent <функция> <уровень>\n\n"
-            text += "Функции:\n"
-            text += "view_questions, answer_questions, hstats"
-            await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
+            await query.message.edit_text("⚙️ Права агентов:\n\nВыберите функцию:", reply_markup=Keyboards.agent_access_functions())
+        
+        elif data.startswith("agent_access_"):
+            function = data.replace("agent_access_", "")
+            context.user_data['setting_type'] = 'agent'
+            context.user_data['setting_name'] = function
+            await query.message.edit_text(f"Выберите минимальный уровень для «{function}»:", reply_markup=Keyboards.access_levels())
+        
+        elif data == "chat_rank_settings":
+            await query.message.edit_text("⚙️ Права рангов чата:\n\nВыберите функцию:", reply_markup=Keyboards.chat_access_functions())
+        
+        elif data.startswith("chat_access_"):
+            function = data.replace("chat_access_", "")
+            context.user_data['setting_type'] = 'chat'
+            context.user_data['setting_name'] = function
+            await query.message.edit_text(f"Выберите минимальный уровень для «{function}»:", reply_markup=Keyboards.access_levels())
+        
+        elif data.startswith("set_level_"):
+            level = int(data.replace("set_level_", ""))
+            setting_type = context.user_data.get('setting_type')
+            setting_name = context.user_data.get('setting_name')
+            
+            if setting_type and setting_name:
+                db.set_access_level(setting_type, setting_name, level)
+                await query.message.edit_text(
+                    f"✅ Доступ установлен!\n\nТип: {setting_type}\nФункция: {setting_name}\nУровень: {level}",
+                    reply_markup=Keyboards.back_to_start()
+                )
+                context.user_data.pop('setting_type', None)
+                context.user_data.pop('setting_name', None)
+            else:
+                await query.message.edit_text("❌ Ошибка!", reply_markup=Keyboards.back_to_start())
+            return ConversationHandler.END
         
         # Админ панель чата
         elif data == "chat_panel":
@@ -2368,10 +2382,7 @@ class Handlers:
             admins = db.get_chat_admins(chat_id)
             text = "👥 Админы чата:\n━━━━━━━━━━━━━━━━\n\n"
             for admin in admins:
-                text += f"👤 {admin[5] or 'Пользователь'}\n"
-                text += f"🆔 ID: {admin[0]}\n"
-                text += f"📊 Уровень: {admin[1]}\n"
-                text += f"━━━━━━━━━━━━━━━━\n"
+                text += f"👤 {admin[5] or 'Пользователь'}\n🆔 ID: {admin[0]}\n📊 Уровень: {admin[1]}\n━━━━━━━━━━━━━━━━\n"
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
         elif data == "chat_rank_names":
@@ -2380,15 +2391,6 @@ class Handlers:
                 name = db.get_chat_rank_name(level)
                 text += f"{level}. {name}\n"
             text += "\nДля переименования:\n/rename_chat_rank <уровень> <название>"
-            await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
-        
-        elif data == "chat_rank_settings":
-            text = "⚙️ Права рангов чата:\n━━━━━━━━━━━━━━━━\n\n"
-            text += "Используйте команду:\n/set_access chat <функция> <уровень>\n\n"
-            text += "Функции:\n"
-            text += "ban, unban, mute, unmute\n"
-            text += "warn, unwarn, setadm\n"
-            text += "welcome_settings, antispam_settings"
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
         elif data == "welcome_settings":
@@ -2483,36 +2485,21 @@ class Handlers:
 ━━━━━━━━━━━━━━━━
 
 👤 Основные:
-/start
-/profile
-/ping
-/id
-/help
+/start, /profile, /ping, /id, /help
 
 🛡 Кланы:
-/clan
-/clan_top
-/clan_bonus
-/create_clan
-/join_clan
-/leave_clan
+/clan, /clan_top, /clan_bonus
+/create_clan, /join_clan, /leave_clan
 
 📝 Прочее:
-/report
-/stats
-/ask"""
+/report, /stats, /ask"""
             
             if bot_level >= 1:
                 text += """
 
 🔨 Модерация:
-/ban
-/unban
-/mute
-/unmute
-/warn
-/unwarn
-/setadm"""
+/ban, /unban, /mute, /unmute
+/warn, /unwarn, /setadm"""
             
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
@@ -2523,10 +2510,7 @@ class Handlers:
                 text += "Нет агентов"
             for agent in agents:
                 status = "🟢" if agent[2] == 'online' else "🔴"
-                text += f"{status} {agent[6] or 'Агент'}\n"
-                text += f"📊 Уровень: {agent[1]}\n"
-                text += f"❓ Отвечено: {agent[3]}\n"
-                text += f"━━━━━━━━━━━━━━━━\n"
+                text += f"{status} {agent[6] or 'Агент'}\n📊 Уровень: {agent[1]}\n❓ Отвечено: {agent[3]}\n━━━━━━━━━━━━━━━━\n"
             await query.message.edit_text(text, reply_markup=Keyboards.back_to_start())
         
         elif data == "report":
@@ -2554,7 +2538,6 @@ class Handlers:
                 welcome_text = welcome_text.replace("{name}", member.first_name or "Гость")
                 welcome_text = welcome_text.replace("{id}", str(member.id))
                 welcome_text = welcome_text.replace("{chat}", update.effective_chat.title or "Наш чат")
-                
                 try:
                     await update.message.reply_text(welcome_text)
                 except Exception as e:
@@ -2597,10 +2580,7 @@ class Handlers:
         if recent_messages > max_messages:
             try:
                 await update.message.delete()
-                warning_msg = await update.message.reply_text(
-                    f"⚠️ {user.first_name}, не спамьте! "
-                    f"Лимит: {max_messages} сообщений за {chat_settings[1]} сек."
-                )
+                warning_msg = await update.message.reply_text(f"⚠️ {user.first_name}, не спамьте! Лимит: {max_messages} сообщений за {chat_settings[1]} сек.")
                 await asyncio.sleep(5)
                 await warning_msg.delete()
             except Exception as e:
@@ -2692,23 +2672,19 @@ class Handlers:
                     await update.message.reply_text("Отправьте уровень (1-9):")
                     return WAITING_FOR_ADMIN_LEVEL
                 except ValueError:
-                    await update.message.reply_text("❌ Неверный ID! Введите число:")
+                    await update.message.reply_text("❌ Неверный ID!")
                     return WAITING_FOR_ADMIN_ID
             
             elif action == 'add_admin_level':
                 try:
                     level = int(text)
-                    if level < 1 or level > 9:
-                        await update.message.reply_text("❌ Уровень должен быть от 1 до 9!")
-                        return WAITING_FOR_ADMIN_LEVEL
-                    
                     target_id = context.user_data.get('target_id')
                     db.add_bot_admin(target_id, level, user.id)
-                    await update.message.reply_text(f"✅ Админ {target_id} добавлен с уровнем {level}!")
+                    await update.message.reply_text(f"✅ Админ {target_id} добавлен!")
                     context.user_data.clear()
                     return ConversationHandler.END
                 except ValueError:
-                    await update.message.reply_text("❌ Неверный уровень! Введите число от 1 до 9:")
+                    await update.message.reply_text("❌ Неверный уровень!")
                     return WAITING_FOR_ADMIN_LEVEL
             
             elif action == 'remove_admin':
@@ -2719,7 +2695,7 @@ class Handlers:
                     context.user_data.clear()
                     return ConversationHandler.END
                 except ValueError:
-                    await update.message.reply_text("❌ Неверный ID! Введите число:")
+                    await update.message.reply_text("❌ Неверный ID!")
                     return WAITING_FOR_ADMIN_ID
             
             elif action == 'change_admin_level':
@@ -2730,23 +2706,19 @@ class Handlers:
                     await update.message.reply_text("Отправьте новый уровень (1-9):")
                     return WAITING_FOR_ADMIN_LEVEL
                 except ValueError:
-                    await update.message.reply_text("❌ Неверный ID! Введите число:")
+                    await update.message.reply_text("❌ Неверный ID!")
                     return WAITING_FOR_ADMIN_ID
             
             elif action == 'change_admin_level_value':
                 try:
                     level = int(text)
-                    if level < 1 or level > 9:
-                        await update.message.reply_text("❌ Уровень должен быть от 1 до 9!")
-                        return WAITING_FOR_ADMIN_LEVEL
-                    
                     target_id = context.user_data.get('target_id')
                     db.update_bot_admin_level(target_id, level)
-                    await update.message.reply_text(f"✅ Уровень изменен на {level}!")
+                    await update.message.reply_text(f"✅ Уровень изменен!")
                     context.user_data.clear()
                     return ConversationHandler.END
                 except ValueError:
-                    await update.message.reply_text("❌ Неверный уровень! Введите число:")
+                    await update.message.reply_text("❌ Неверный уровень!")
                     return WAITING_FOR_ADMIN_LEVEL
             
             elif action == 'add_agent':
@@ -2757,23 +2729,19 @@ class Handlers:
                     await update.message.reply_text("Отправьте уровень (1-3):")
                     return WAITING_FOR_AGENT_LEVEL
                 except ValueError:
-                    await update.message.reply_text("❌ Неверный ID! Введите число:")
+                    await update.message.reply_text("❌ Неверный ID!")
                     return WAITING_FOR_AGENT_ID
             
             elif action == 'add_agent_level':
                 try:
                     level = int(text)
-                    if level < 1 or level > 3:
-                        await update.message.reply_text("❌ Уровень должен быть от 1 до 3!")
-                        return WAITING_FOR_AGENT_LEVEL
-                    
                     target_id = context.user_data.get('target_id')
                     db.add_agent(target_id, level)
-                    await update.message.reply_text(f"✅ Агент {target_id} добавлен с уровнем {level}!")
+                    await update.message.reply_text(f"✅ Агент {target_id} добавлен!")
                     context.user_data.clear()
                     return ConversationHandler.END
                 except ValueError:
-                    await update.message.reply_text("❌ Неверный уровень! Введите число от 1 до 3:")
+                    await update.message.reply_text("❌ Неверный уровень!")
                     return WAITING_FOR_AGENT_LEVEL
             
             elif action == 'remove_agent':
@@ -2784,7 +2752,7 @@ class Handlers:
                     context.user_data.clear()
                     return ConversationHandler.END
                 except ValueError:
-                    await update.message.reply_text("❌ Неверный ID! Введите число:")
+                    await update.message.reply_text("❌ Неверный ID!")
                     return WAITING_FOR_AGENT_ID
             
             elif action == 'change_agent_level':
@@ -2795,23 +2763,19 @@ class Handlers:
                     await update.message.reply_text("Отправьте новый уровень (1-3):")
                     return WAITING_FOR_AGENT_LEVEL
                 except ValueError:
-                    await update.message.reply_text("❌ Неверный ID! Введите число:")
+                    await update.message.reply_text("❌ Неверный ID!")
                     return WAITING_FOR_AGENT_ID
             
             elif action == 'change_agent_level_value':
                 try:
                     level = int(text)
-                    if level < 1 or level > 3:
-                        await update.message.reply_text("❌ Уровень должен быть от 1 до 3!")
-                        return WAITING_FOR_AGENT_LEVEL
-                    
                     target_id = context.user_data.get('target_id')
                     db.update_agent_level(target_id, level)
-                    await update.message.reply_text(f"✅ Уровень изменен на {level}!")
+                    await update.message.reply_text(f"✅ Уровень изменен!")
                     context.user_data.clear()
                     return ConversationHandler.END
                 except ValueError:
-                    await update.message.reply_text("❌ Неверный уровень! Введите число от 1 до 3:")
+                    await update.message.reply_text("❌ Неверный уровень!")
                     return WAITING_FOR_AGENT_LEVEL
             
             elif action == 'blacklist_add':
@@ -2822,13 +2786,13 @@ class Handlers:
                     await update.message.reply_text("Отправьте причину:")
                     return WAITING_FOR_BLACKLIST_REASON
                 except ValueError:
-                    await update.message.reply_text("❌ Неверный ID! Введите число:")
+                    await update.message.reply_text("❌ Неверный ID!")
                     return WAITING_FOR_BLACKLIST_ID
             
             elif action == 'blacklist_add_reason':
                 target_id = context.user_data.get('target_id')
                 db.add_to_blacklist(target_id, text, user.id)
-                await update.message.reply_text(f"✅ {target_id} добавлен в ЧС!\n📝 Причина: {text}")
+                await update.message.reply_text(f"✅ {target_id} добавлен в ЧС!")
                 context.user_data.clear()
                 return ConversationHandler.END
             
@@ -2840,7 +2804,7 @@ class Handlers:
                     context.user_data.clear()
                     return ConversationHandler.END
                 except ValueError:
-                    await update.message.reply_text("❌ Неверный ID! Введите число:")
+                    await update.message.reply_text("❌ Неверный ID!")
                     return WAITING_FOR_BLACKLIST_ID
         
         if 'broadcast_type' in context.user_data:
@@ -2853,7 +2817,6 @@ class Handlers:
                     try:
                         await context.bot.send_message(user_data[0], f"📨 Рассылка:\n\n{text}")
                         sent += 1
-                        await asyncio.sleep(0.05)
                     except:
                         pass
             elif broadcast_type == 'chats':
@@ -2862,7 +2825,6 @@ class Handlers:
                     try:
                         await context.bot.send_message(chat[0], f"📨 Рассылка:\n\n{text}")
                         sent += 1
-                        await asyncio.sleep(0.05)
                     except:
                         pass
             
@@ -2877,11 +2839,11 @@ class Handlers:
                 enemy_clan = db.get_clan_by_id(enemy_clan_id)
                 
                 if not enemy_clan:
-                    await update.message.reply_text("❌ Клан не найден! Введите ID еще раз:")
+                    await update.message.reply_text("❌ Клан не найден!")
                     return WAITING_FOR_WAR_CLAN_ID
                 
                 if enemy_clan_id == clan[0]:
-                    await update.message.reply_text("❌ Нельзя объявить войну своему клану! Введите другой ID:")
+                    await update.message.reply_text("❌ Нельзя объявить войну своему клану!")
                     return WAITING_FOR_WAR_CLAN_ID
                 
                 context.user_data['enemy_clan_id'] = enemy_clan_id
@@ -2891,85 +2853,36 @@ class Handlers:
                 return WAITING_FOR_WAR_RATING
                 
             except ValueError:
-                await update.message.reply_text("❌ Неверный ID! Введите число:")
+                await update.message.reply_text("❌ Неверный ID!")
                 return WAITING_FOR_WAR_CLAN_ID
         
         if 'waiting_war_rating' in context.user_data:
             try:
                 rating = int(text)
-                if rating < 1:
-                    await update.message.reply_text("❌ Ставка должна быть больше 0!")
-                    return WAITING_FOR_WAR_RATING
-                
                 clan = db.get_user_clan(user.id)
                 enemy_clan_id = context.user_data.get('enemy_clan_id')
                 enemy_clan = db.get_clan_by_id(enemy_clan_id)
                 
-                if clan[3] < rating:
-                    await update.message.reply_text(f"❌ У вашего клана недостаточно рейтинга! (У вас: {clan[3]})")
-                    return WAITING_FOR_WAR_RATING
-                
-                if enemy_clan[3] < rating:
-                    await update.message.reply_text(f"❌ У клана противника недостаточно рейтинга! (У них: {enemy_clan[3]})")
-                    return WAITING_FOR_WAR_RATING
-                
                 result = db.declare_war(clan[0], enemy_clan_id, rating)
-                if not result:
-                    await update.message.reply_text("❌ Ошибка при объявлении войны!")
+                if result:
+                    winner_name = result['clan1_name'] if result['winner_id'] == clan[0] else result['clan2_name']
+                    text_result = f"⚔ ВОЙНА ЗАВЕРШЕНА!\n\n🏆 Победитель: {winner_name}!\n💰 Ставка: {rating}"
+                    await update.message.reply_text(text_result)
+                    context.user_data.clear()
                     return ConversationHandler.END
-                
-                winner_name = result['clan1_name'] if result['winner_id'] == clan[0] else result['clan2_name']
-                loser_name = result['clan2_name'] if result['winner_id'] == clan[0] else result['clan1_name']
-                
-                text_result = f"""⚔ ВОЙНА ЗАВЕРШЕНА!
-━━━━━━━━━━━━━━━━
-
-🛡 {result['clan1_name']}: {result['clan1_chance']}%
-🛡 {result['clan2_name']}: {result['clan2_chance']}%
-
-━━━━━━━━━━━━━━━━
-
-🏆 ПОБЕДИТЕЛЬ: {winner_name}!
-💰 Выигрыш: +{rating} рейтинга
-
-❌ ПРОИГРАВШИЙ: {loser_name}
-💸 Потеря: -{rating} рейтинга"""
-                
-                await update.message.reply_text(text_result)
-                
-                try:
-                    await context.bot.send_message(
-                        enemy_clan[2],
-                        f"⚔ Война с кланом «{clan[1]}» завершена!\n"
-                        f"🏆 Победитель: {winner_name}\n"
-                        f"💰 Ставка: {rating} рейтинга"
-                    )
-                except:
-                    pass
-                
-                context.user_data.clear()
-                return ConversationHandler.END
-                
             except ValueError:
-                await update.message.reply_text("❌ Неверная ставка! Введите число:")
+                await update.message.reply_text("❌ Неверная ставка!")
                 return WAITING_FOR_WAR_RATING
         
         if 'clan_msg_to' in context.user_data:
             try:
                 to_clan_id = int(text)
-                target_clan = db.get_clan_by_id(to_clan_id)
-                
-                if not target_clan:
-                    await update.message.reply_text("❌ Клан не найден! Введите ID:")
-                    return WAITING_FOR_CLAN_MSG_CLAN
-                
                 context.user_data['clan_msg_to'] = to_clan_id
                 context.user_data['waiting_clan_msg_text'] = True
                 await update.message.reply_text("Отправьте текст сообщения:")
                 return WAITING_FOR_CLAN_MSG_TEXT
-                
             except ValueError:
-                await update.message.reply_text("❌ Неверный ID! Введите число:")
+                await update.message.reply_text("❌ Неверный ID!")
                 return WAITING_FOR_CLAN_MSG_CLAN
         
         if 'waiting_clan_msg_text' in context.user_data:
@@ -2984,44 +2897,15 @@ class Handlers:
             try:
                 invite_user_id = int(text)
                 clan = db.get_user_clan(user.id)
-                
-                if not clan:
-                    await update.message.reply_text("❌ Вы не в клане!")
-                    context.user_data.clear()
-                    return ConversationHandler.END
-                
-                invited_user_clan = db.get_user_clan(invite_user_id)
-                if invited_user_clan:
-                    await update.message.reply_text("❌ Пользователь уже в клане!")
-                    context.user_data.clear()
-                    return ConversationHandler.END
-                
                 db.join_clan(invite_user_id, clan[0])
-                await update.message.reply_text(f"✅ Пользователь {invite_user_id} приглашен в клан!")
-                
-                try:
-                    await context.bot.send_message(
-                        invite_user_id,
-                        f"🎉 Вас пригласили в клан «{clan[1]}»!"
-                    )
-                except:
-                    pass
-                
+                await update.message.reply_text(f"✅ Пользователь {invite_user_id} приглашен!")
                 context.user_data.clear()
                 return ConversationHandler.END
-                
             except ValueError:
-                await update.message.reply_text("❌ Неверный ID! Введите число:")
+                await update.message.reply_text("❌ Неверный ID!")
                 return WAITING_FOR_INVITE_USER
         
         return ConversationHandler.END
-        
-        # Автосохранение каждые 10 минут
-    async def auto_backup():
-        while True:
-        	await asyncio.sleep(600)  # 600 секунд = 10 минут
-        	backup_manager.backup(db)
-        	print(f"✅ Автосохранение: {datetime.now().strftime('%H:%M:%S')}")
 
 
 def main():
@@ -3029,46 +2913,36 @@ def main():
     
     application = Application.builder().token(BOT_TOKEN).build()
     
+    # Автосохранение каждые 10 минут через job_queue
+    async def backup_job(context):
+        try:
+            backup_manager.backup(db)
+            print(f"✅ Автосохранение: {datetime.now().strftime('%H:%M:%S')}")
+        except Exception as e:
+            print(f"❌ Ошибка автосохранения: {e}")
+    
+    application.job_queue.run_repeating(backup_job, interval=600, first=600)
+    
     commands = {
-        "start": Handlers.start,
-        "help": Handlers.help_command,
-        "profile": Handlers.profile,
-        "ping": Handlers.ping,
-        "id": Handlers.get_id,
-        "clan": Handlers.clan_menu_command,
-        "clan_top": Handlers.clan_top_command,
-        "clan_bonus": Handlers.clan_bonus,
-        "stats": Handlers.stats,
-        "create_clan": Handlers.create_clan,
-        "join_clan": Handlers.join_clan,
-        "leave_clan": Handlers.leave_clan,
-        "report": Handlers.report,
-        "ban": Handlers.ban,
-        "unban": Handlers.unban,
-        "mute": Handlers.mute,
-        "unmute": Handlers.unmute,
-        "warn": Handlers.warn,
-        "unwarn": Handlers.unwarn,
-        "setadm": Handlers.setadm,
-        "permban": Handlers.permban,
-        "unperm": Handlers.unperm,
-        "broadcast": Handlers.broadcast,
-        "reports": Handlers.reports,
-        "answer_report": Handlers.answer_report,
-        "reject_report": Handlers.reject_report,
-        "answer_question": Handlers.answer_question,
-        "reject_question": Handlers.reject_question,
-        "astats": Handlers.astats,
-        "hstats": Handlers.hstats,
-        "give_rep": Handlers.give_rep,
-        "rename_bot_rank": Handlers.rename_bot_rank,
-        "rename_agent_rank": Handlers.rename_agent_rank,
-        "rename_chat_rank": Handlers.rename_chat_rank,
-        "set_access": Handlers.set_access_command,
-        "accept_request": Handlers.accept_request,
-        "reject_request": Handlers.reject_request,
-        "ask": Handlers.ask,
-        "backup": Handlers.backup_command,
+        "start": Handlers.start, "help": Handlers.help_command,
+        "profile": Handlers.profile, "ping": Handlers.ping,
+        "id": Handlers.get_id, "clan": Handlers.clan_menu_command,
+        "clan_top": Handlers.clan_top_command, "clan_bonus": Handlers.clan_bonus,
+        "stats": Handlers.stats, "create_clan": Handlers.create_clan,
+        "join_clan": Handlers.join_clan, "leave_clan": Handlers.leave_clan,
+        "report": Handlers.report, "ban": Handlers.ban,
+        "unban": Handlers.unban, "mute": Handlers.mute,
+        "unmute": Handlers.unmute, "warn": Handlers.warn,
+        "unwarn": Handlers.unwarn, "setadm": Handlers.setadm,
+        "permban": Handlers.permban, "unperm": Handlers.unperm,
+        "broadcast": Handlers.broadcast, "reports": Handlers.reports,
+        "answer_report": Handlers.answer_report, "reject_report": Handlers.reject_report,
+        "answer_question": Handlers.answer_question, "reject_question": Handlers.reject_question,
+        "astats": Handlers.astats, "hstats": Handlers.hstats,
+        "give_rep": Handlers.give_rep, "rename_bot_rank": Handlers.rename_bot_rank,
+        "rename_agent_rank": Handlers.rename_agent_rank, "rename_chat_rank": Handlers.rename_chat_rank,
+        "accept_request": Handlers.accept_request, "reject_request": Handlers.reject_request,
+        "ask": Handlers.ask, "backup": Handlers.backup_command,
     }
     
     for command, handler in commands.items():
@@ -3095,7 +2969,11 @@ def main():
             CallbackQueryHandler(Handlers.button_handler, pattern="^invite_member$"),
             CallbackQueryHandler(Handlers.button_handler, pattern="^edit_welcome_text$"),
             CallbackQueryHandler(Handlers.button_handler, pattern="^find_clan_btn$"),
-            CallbackQueryHandler(Handlers.button_handler, pattern="^give_reward_btn$")
+            CallbackQueryHandler(Handlers.button_handler, pattern="^give_reward_btn$"),
+            CallbackQueryHandler(Handlers.button_handler, pattern="^bot_access_"),
+            CallbackQueryHandler(Handlers.button_handler, pattern="^agent_access_"),
+            CallbackQueryHandler(Handlers.button_handler, pattern="^chat_access_"),
+            CallbackQueryHandler(Handlers.button_handler, pattern="^set_level_"),
         ],
         states={
             WAITING_FOR_ADMIN_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, Handlers.text_handler)],
@@ -3123,7 +3001,7 @@ def main():
     
     print("✅ Бот запущен!")
     print(f"👑 Основатель: {SUPER_ADMIN_ID}")
-    print("📦 Резервное копирование: /backup")
+    print("📦 Автосохранение: каждые 10 минут")
     
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
